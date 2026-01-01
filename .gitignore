@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual Environments
+.venv
+
+# Tool cache
+.cache/
+.pytest_cache/
+
+# Coverage reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Type Checking
+.mypy_cache/
+
+# IDEs & Editors
+.vscode/
+.idea/
