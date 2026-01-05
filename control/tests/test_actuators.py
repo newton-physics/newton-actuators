@@ -215,8 +215,217 @@ class TestPIDActuator(unittest.TestCase):
         self.assertIsInstance(state, PIDActuatorState)
         self.assertEqual(state.integral.shape[0], num_dofs)
 
-        # Integral should be zero-initialized
         np.testing.assert_array_equal(state.integral.numpy(), [0.0, 0.0])
+
+
+class MockAttribute:
+    """Mock USD attribute for testing."""
+
+    def __init__(self, value=None, name=""):
+        self._value = value
+        self._name = name
+
+    def HasAuthoredValue(self):
+        return self._value is not None
+
+    def Get(self):
+        return self._value
+
+    def GetName(self):
+        return self._name
+
+
+class MockRelationship:
+    """Mock USD relationship for testing."""
+
+    def __init__(self, targets=None):
+        self._targets = targets or []
+
+    def GetTargets(self):
+        return self._targets
+
+
+class MockPrim:
+    """Mock USD prim for testing ActuatorParser."""
+
+    def __init__(self, type_name="", attributes=None, relationships=None, schemas=None):
+        self._type_name = type_name
+        self._attributes = attributes or {}
+        self._relationships = relationships or {}
+        self._schemas = schemas or []
+
+    def GetTypeName(self):
+        return self._type_name
+
+    def GetAttribute(self, name):
+        return self._attributes.get(name)
+
+    def GetAttributes(self):
+        """Return list of attribute objects with names."""
+        return [MockAttribute(attr._value, name) for name, attr in self._attributes.items()]
+
+    def GetRelationship(self, name):
+        return self._relationships.get(name)
+
+    def GetAppliedSchemas(self):
+        return self._schemas
+
+
+class TestActuatorParser(unittest.TestCase):
+    """Tests for ActuatorParser and USD parsing utilities."""
+
+    def test_parse_pd_actuator_prim(self):
+        """Test parsing a PD actuator prim."""
+        from control import parse_actuator_prim, PDActuator
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "pdcontroller:kp": MockAttribute(100.0),
+                "pdcontroller:kd": MockAttribute(10.0),
+            },
+            relationships={
+                "target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+            schemas=["PDControllerAPI"],
+        )
+
+        result = parse_actuator_prim(prim)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actuator_class, PDActuator)
+        self.assertEqual(result.target_paths, ["/World/Robot/Joint1"])
+        self.assertEqual(result.kwargs.get("kp"), 100.0)
+        self.assertEqual(result.kwargs.get("kd"), 10.0)
+
+    def test_parse_delayed_pd_actuator_prim(self):
+        """Test parsing a Delayed PD actuator prim."""
+        from control import parse_actuator_prim, DelayedPDActuator
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "pdcontroller:kp": MockAttribute(50.0),
+                "delay:delay": MockAttribute(5),
+            },
+            relationships={
+                "target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+            schemas=["PDControllerAPI", "DelayAPI"],
+        )
+
+        result = parse_actuator_prim(prim)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actuator_class, DelayedPDActuator)
+        self.assertEqual(result.kwargs.get("kp"), 50.0)
+        self.assertEqual(result.kwargs.get("delay"), 5)
+
+    def test_parse_pid_actuator_prim(self):
+        """Test parsing a PID actuator prim."""
+        from control import parse_actuator_prim, PIDActuator
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "pidcontroller:kp": MockAttribute(100.0),
+                "pidcontroller:ki": MockAttribute(5.0),
+                "pidcontroller:kd": MockAttribute(10.0),
+            },
+            relationships={
+                "target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+            schemas=["PIDControllerAPI"],
+        )
+
+        result = parse_actuator_prim(prim)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actuator_class, PIDActuator)
+        self.assertEqual(result.kwargs.get("kp"), 100.0)
+        self.assertEqual(result.kwargs.get("ki"), 5.0)
+
+    def test_parse_multi_target_actuator(self):
+        """Test parsing an actuator with multiple targets."""
+        from control import parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "pdcontroller:kp": MockAttribute(100.0),
+                "transmission": MockAttribute([0.5, 0.3, 0.2]),
+            },
+            relationships={
+                "target": MockRelationship([
+                    "/World/Robot/Joint1",
+                    "/World/Robot/Joint2",
+                    "/World/Robot/Joint3",
+                ]),
+            },
+            schemas=["PDControllerAPI"],
+        )
+
+        result = parse_actuator_prim(prim)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result.target_paths), 3)
+        self.assertEqual(result.transmission, [0.5, 0.3, 0.2])
+
+    def test_parse_multiple_actuators(self):
+        """Test parsing multiple actuator prims."""
+        from control import parse_actuator_prim, PDActuator
+
+        prim1 = MockPrim(
+            type_name="Actuator",
+            attributes={"pdcontroller:kp": MockAttribute(100.0)},
+            relationships={"target": MockRelationship(["/World/Robot/Joint1"])},
+            schemas=["PDControllerAPI"],
+        )
+        prim2 = MockPrim(
+            type_name="Actuator",
+            attributes={"pdcontroller:kp": MockAttribute(200.0)},
+            relationships={"target": MockRelationship(["/World/Robot/Joint2"])},
+            schemas=["PDControllerAPI"],
+        )
+
+        result1 = parse_actuator_prim(prim1)
+        result2 = parse_actuator_prim(prim2)
+
+        self.assertIsNotNone(result1)
+        self.assertIsNotNone(result2)
+        self.assertEqual(result1.actuator_class, PDActuator)
+        self.assertEqual(result1.target_paths, ["/World/Robot/Joint1"])
+        self.assertEqual(result1.kwargs.get("kp"), 100.0)
+        self.assertEqual(result2.target_paths, ["/World/Robot/Joint2"])
+        self.assertEqual(result2.kwargs.get("kp"), 200.0)
+
+    def test_parse_non_actuator_prim_returns_none(self):
+        """Test that non-Actuator prims return None."""
+        from control import parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Mesh",  # Not an Actuator
+            attributes={},
+            relationships={},
+            schemas=[],
+        )
+
+        result = parse_actuator_prim(prim)
+        self.assertIsNone(result)
+
+    def test_parse_actuator_without_targets_returns_none(self):
+        """Test that actuator without targets returns None."""
+        from control import parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={"pdcontroller:kp": MockAttribute(100.0)},
+            relationships={},  # No targets
+            schemas=["PDControllerAPI"],
+        )
+
+        result = parse_actuator_prim(prim)
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

@@ -71,6 +71,12 @@ from ._src.types import (
     PIDActuatorState,
 )
 
+# USD parsing
+from ._src.usd_parser import (
+    ParsedActuator,
+    parse_actuator_prim,
+)
+
 # Version
 from ._version import __version__
 
@@ -85,5 +91,8 @@ __all__ = [
     # State classes
     "DelayedActuatorState",
     "PIDActuatorState",
+    # USD parsing
+    "ParsedActuator",
+    "parse_actuator_prim",
 ]
 
