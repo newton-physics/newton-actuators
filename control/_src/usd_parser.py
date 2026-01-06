@@ -72,26 +72,28 @@ def get_relationship_targets(prim, name: str) -> list[str]:
     return [str(t) for t in rel.GetTargets()]
 
 
-def get_attribute_prefixes(prim) -> set[str]:
-    """Get all attribute namespace prefixes from a prim."""
-    prefixes = set()
+def get_actuator_attribute_names(prim) -> set[str]:
+    """Get all newton:actuator attribute names from a prim."""
+    names = set()
     for attr in prim.GetAttributes():
-        name = attr.GetName()
-        if ":" in name:
-            prefixes.add(name.split(":")[0])
-    return prefixes
+        attr_name = attr.GetName()
+        if attr_name.startswith("newton:actuator:"):
+            names.add(attr_name.split(":")[-1])
+    return names
 
 
-def infer_schemas_from_attributes(prim) -> list[str]:
-    """Infer API schemas from attribute prefixes."""
-    prefixes = get_attribute_prefixes(prim)
+def infer_schemas_from_prim(prim) -> list[str]:
+    """Infer actuator schemas from attribute names."""
+    attr_names = get_actuator_attribute_names(prim)
     schemas = []
-    if "pdcontroller" in prefixes:
-        schemas.append("PDControllerAPI")
-    if "pidcontroller" in prefixes:
+    
+    if "ki" in attr_names:
         schemas.append("PIDControllerAPI")
-    if "delay" in prefixes:
+    elif "kp" in attr_names or "kd" in attr_names:
+        schemas.append("PDControllerAPI")   
+    if "delay" in attr_names:
         schemas.append("DelayAPI")
+    
     return schemas
 
 
@@ -112,19 +114,16 @@ def determine_actuator_class(schemas: list[str]) -> type:
 
 
 def extract_kwargs_from_prim(prim, schemas: list[str]) -> dict[str, Any]:
-    """Extract actuator parameters from prim attributes."""
+    """Extract actuator parameters from prim attributes using newton:actuator:{attr} format."""
     kwargs = {}
     for schema_name in schemas:
         if schema_name not in API_SCHEMA_HANDLERS:
             continue
         param_map = API_SCHEMA_HANDLERS[schema_name]
-        schema_prefix = schema_name.replace("API", "").lower()
         for usd_name, kwarg_name in param_map.items():
-            for attr_name in [f"{schema_prefix}:{usd_name}", usd_name]:
-                value = get_attribute(prim, attr_name)
-                if value is not None:
-                    kwargs[kwarg_name] = value
-                    break
+            value = get_attribute(prim, f"newton:actuator:{usd_name}")
+            if value is not None:
+                kwargs[kwarg_name] = value
     return kwargs
 
 
@@ -133,12 +132,13 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
     if prim.GetTypeName() != "Actuator":
         return None
 
-    target_paths = get_relationship_targets(prim, "target")
+    target_paths = get_relationship_targets(prim, "newton:actuator:target")
     if not target_paths:
         return None
 
-    schemas = infer_schemas_from_attributes(prim)
-    transmission = get_attribute(prim, "transmission")
+    schemas = infer_schemas_from_prim(prim)
+    
+    transmission = get_attribute(prim, "newton:actuator:transmission")
 
     return ParsedActuator(
         actuator_class=determine_actuator_class(schemas),
