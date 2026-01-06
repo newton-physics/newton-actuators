@@ -34,6 +34,7 @@ class DelayedPDActuator(Actuator):
     Stateful: delays targets by N timesteps using circular buffer to model actuator lag.
     """
 
+    SCALAR_PARAMS = {"delay"}
     State = DelayedActuatorState
 
     def _is_stateful(self) -> bool:

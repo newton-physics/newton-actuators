@@ -29,7 +29,12 @@ class Actuator:
         1. Controller: computes forces from state error
         2. State manager: updates internal state (e.g., delay buffers)
         3. Transmission: maps actuation forces to output (e.g., via Jacobian)
+
+    Class Attributes:
+        SCALAR_PARAMS: Set of parameter names that are scalars (not per-DOF arrays).
     """
+
+    SCALAR_PARAMS: set[str] = set()
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
