@@ -57,16 +57,26 @@ class Actuator:
         """Initialize actuator.
 
         Args:
-            input_indices (wp.array): Indices for reading state/targets. Shape (N,) for SISO or (N, M) for MIMO.
-            output_indices (wp.array): Indices for writing output. Shape (N,).
+            input_indices (wp.array): DOF indices for reading state and targets.
+                Shape (N,) for single input per actuator, (N, M) for multiple inputs per actuator.
+            output_indices (wp.array): DOF indices for writing output forces.
+                Shape (N,) for single output per actuator, (N, K) for multiple outputs per actuator.
             control_output_attr (str): Attribute name on sim_control for output.
         """
         self.input_indices = input_indices
         self.output_indices = output_indices
         self.control_output_attr = control_output_attr
-        self.num_actuators = len(output_indices)
+        self.num_actuators = len(input_indices)
 
-        self._sequential_indices = wp.array(np.arange(self.num_actuators, dtype=np.uint32))
+
+        if len(output_indices) != self.num_actuators:
+            raise ValueError(
+                f"output_indices length ({len(output_indices)}) must match "
+                f"input_indices length ({self.num_actuators})"
+            )
+
+        device = input_indices.device
+        self._sequential_indices = wp.array(np.arange(self.num_actuators, dtype=np.uint32), device=device)
         self._actuation_forces = None
 
     def _is_stateful(self) -> bool:

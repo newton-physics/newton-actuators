@@ -70,8 +70,8 @@ class PDActuator(Actuator):
         """Initialize PD actuator.
 
         Args:
-            input_indices (wp.array): Indices for reading state and targets. Shape (N,).
-            output_indices (wp.array): Indices for writing output. Shape (N,).
+            input_indices (wp.array): DOF indices for reading state and targets. Shape (N,).
+            output_indices (wp.array): DOF indices for writing output. Shape (N,).
             kp (wp.array): Proportional gains. Shape (N,).
             kd (wp.array): Derivative gains. Shape (N,).
             max_force (wp.array): Force limits. Shape (N,).
@@ -85,6 +85,10 @@ class PDActuator(Actuator):
             control_output_attr (str): Attribute on sim_control for output forces.
         """
         super().__init__(input_indices, output_indices, control_output_attr)
+
+        for name, arr in [("kp", kp), ("kd", kd), ("max_force", max_force), ("gear", gear), ("constant_force", constant_force)]:
+            if len(arr) != self.num_actuators:
+                raise ValueError(f"{name} length ({len(arr)}) must match num_actuators ({self.num_actuators})")
 
         self.kp = kp
         self.kd = kd

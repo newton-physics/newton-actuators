@@ -40,20 +40,22 @@ Typical workflow:
 Example:
     ```python
     import warp as wp
-    from newton_actuators import PDActuator, DelayedPDActuator
+    from newton_actuators import PDActuator
 
     # Create a PD actuator for 3 DOFs
+    indices = wp.array([0, 1, 2], dtype=wp.uint32)
     pd_actuator = PDActuator(
-        indices=wp.array([0, 1, 2], dtype=wp.uint32),
+        input_indices=indices,
+        output_indices=indices,
         kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
         kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
         max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
-        gear=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
+        gear=wp.array([1.0, 1.0, 1.0], dtype=wp.float32),
         constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
     )
 
     # In simulation loop - stateless actuators don't need state management
-    pd_actuator.step(sim_state, sim_control, None, None)
+    pd_actuator.step(sim_state, sim_control, None, None, dt=0.01)
     ```
 """
 
