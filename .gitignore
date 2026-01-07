@@ -11,7 +11,7 @@ wheels/
 
 # Tool cache
 .cache/
-.pytest_cache/
+.thumbs/
 
 # Coverage reports
 .coverage

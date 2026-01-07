@@ -281,11 +281,11 @@ class TestActuatorParser(unittest.TestCase):
         prim = MockPrim(
             type_name="Actuator",
             attributes={
-                "pdcontroller:kp": MockAttribute(100.0),
-                "pdcontroller:kd": MockAttribute(10.0),
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:kd": MockAttribute(10.0, "newton:actuator:kd"),
             },
             relationships={
-                "target": MockRelationship(["/World/Robot/Joint1"]),
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
             schemas=["PDControllerAPI"],
         )
@@ -305,11 +305,11 @@ class TestActuatorParser(unittest.TestCase):
         prim = MockPrim(
             type_name="Actuator",
             attributes={
-                "pdcontroller:kp": MockAttribute(50.0),
-                "delay:delay": MockAttribute(5),
+                "newton:actuator:kp": MockAttribute(50.0, "newton:actuator:kp"),
+                "newton:actuator:delay": MockAttribute(5, "newton:actuator:delay"),
             },
             relationships={
-                "target": MockRelationship(["/World/Robot/Joint1"]),
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
             schemas=["PDControllerAPI", "DelayAPI"],
         )
@@ -328,12 +328,12 @@ class TestActuatorParser(unittest.TestCase):
         prim = MockPrim(
             type_name="Actuator",
             attributes={
-                "pidcontroller:kp": MockAttribute(100.0),
-                "pidcontroller:ki": MockAttribute(5.0),
-                "pidcontroller:kd": MockAttribute(10.0),
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:ki": MockAttribute(5.0, "newton:actuator:ki"),
+                "newton:actuator:kd": MockAttribute(10.0, "newton:actuator:kd"),
             },
             relationships={
-                "target": MockRelationship(["/World/Robot/Joint1"]),
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
             schemas=["PIDControllerAPI"],
         )
@@ -352,11 +352,11 @@ class TestActuatorParser(unittest.TestCase):
         prim = MockPrim(
             type_name="Actuator",
             attributes={
-                "pdcontroller:kp": MockAttribute(100.0),
-                "transmission": MockAttribute([0.5, 0.3, 0.2]),
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:transmission": MockAttribute([0.5, 0.3, 0.2], "newton:actuator:transmission"),
             },
             relationships={
-                "target": MockRelationship([
+                "newton:actuator:target": MockRelationship([
                     "/World/Robot/Joint1",
                     "/World/Robot/Joint2",
                     "/World/Robot/Joint3",
@@ -377,14 +377,14 @@ class TestActuatorParser(unittest.TestCase):
 
         prim1 = MockPrim(
             type_name="Actuator",
-            attributes={"pdcontroller:kp": MockAttribute(100.0)},
-            relationships={"target": MockRelationship(["/World/Robot/Joint1"])},
+            attributes={"newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp")},
+            relationships={"newton:actuator:target": MockRelationship(["/World/Robot/Joint1"])},
             schemas=["PDControllerAPI"],
         )
         prim2 = MockPrim(
             type_name="Actuator",
-            attributes={"pdcontroller:kp": MockAttribute(200.0)},
-            relationships={"target": MockRelationship(["/World/Robot/Joint2"])},
+            attributes={"newton:actuator:kp": MockAttribute(200.0, "newton:actuator:kp")},
+            relationships={"newton:actuator:target": MockRelationship(["/World/Robot/Joint2"])},
             schemas=["PDControllerAPI"],
         )
 
@@ -419,7 +419,7 @@ class TestActuatorParser(unittest.TestCase):
 
         prim = MockPrim(
             type_name="Actuator",
-            attributes={"pdcontroller:kp": MockAttribute(100.0)},
+            attributes={"newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp")},
             relationships={},  # No targets
             schemas=["PDControllerAPI"],
         )
