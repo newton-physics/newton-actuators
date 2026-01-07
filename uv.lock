@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "control"
+name = "newton-actuators"
 source = { editable = "." }
 dependencies = [
     { name = "warp-lang" },

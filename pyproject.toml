@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "control"
+name = "newton-actuators"
 dynamic = ["version"]
 license = "Apache-2.0"
 authors = [{ name = "Newton Developers", email = "warp-python@nvidia.com" }]
@@ -21,10 +21,10 @@ requires-python = ">=3.10"
 dependencies = ["warp-lang>=1.11.0.dev20251205"]
 
 [tool.hatch.version]
-path = "control/_version.py"
+path = "newton_actuators/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["control"]
+packages = ["newton_actuators"]
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"

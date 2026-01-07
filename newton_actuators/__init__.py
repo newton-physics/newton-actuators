@@ -14,21 +14,21 @@
 # limitations under the License.
 
 """
-Control library for actuator-based control in physics simulations.
+Newton Actuators - GPU-accelerated actuator library for physics simulations.
 
 This library provides a collection of actuator implementations that integrate with
 physics simulation pipelines. Actuators read from simulation state arrays and write
 computed forces/torques back to control arrays.
 
 Available Actuators:
-    - :class:`~control.Actuator`: Abstract base class for all actuators
-    - :class:`~control.PDActuator`: Stateless PD controller
-    - :class:`~control.DelayedPDActuator`: PD controller with input delay
-    - :class:`~control.PIDActuator`: Stateful PID controller with integral term
+    - :class:`~newton_actuators.Actuator`: Abstract base class for all actuators
+    - :class:`~newton_actuators.PDActuator`: Stateless PD controller
+    - :class:`~newton_actuators.DelayedPDActuator`: PD controller with input delay
+    - :class:`~newton_actuators.PIDActuator`: Stateful PID controller with integral term
 
 State Classes:
-    - :class:`~control.DelayedActuatorState`: State for delayed actuators (circular buffer)
-    - :class:`~control.PIDActuatorState`: State for PID actuators (integral term)
+    - :class:`~newton_actuators.DelayedActuatorState`: State for delayed actuators (circular buffer)
+    - :class:`~newton_actuators.PIDActuatorState`: State for PID actuators (integral term)
 
 Typical workflow:
 
@@ -40,7 +40,7 @@ Typical workflow:
 Example:
     ```python
     import warp as wp
-    from control import PDActuator, DelayedPDActuator
+    from newton_actuators import PDActuator, DelayedPDActuator
 
     # Create a PD actuator for 3 DOFs
     pd_actuator = PDActuator(

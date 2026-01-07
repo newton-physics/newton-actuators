@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import numpy as np
 import warp as wp
 
-from control import (
+from newton_actuators import (
     Actuator,
     DelayedActuatorState,
     DelayedPDActuator,
@@ -276,7 +276,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_pd_actuator_prim(self):
         """Test parsing a PD actuator prim."""
-        from control import parse_actuator_prim, PDActuator
+        from newton_actuators import parse_actuator_prim, PDActuator
 
         prim = MockPrim(
             type_name="Actuator",
@@ -300,7 +300,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_delayed_pd_actuator_prim(self):
         """Test parsing a Delayed PD actuator prim."""
-        from control import parse_actuator_prim, DelayedPDActuator
+        from newton_actuators import parse_actuator_prim, DelayedPDActuator
 
         prim = MockPrim(
             type_name="Actuator",
@@ -323,7 +323,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_pid_actuator_prim(self):
         """Test parsing a PID actuator prim."""
-        from control import parse_actuator_prim, PIDActuator
+        from newton_actuators import parse_actuator_prim, PIDActuator
 
         prim = MockPrim(
             type_name="Actuator",
@@ -347,7 +347,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_multi_target_actuator(self):
         """Test parsing an actuator with multiple targets."""
-        from control import parse_actuator_prim
+        from newton_actuators import parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -373,7 +373,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_multiple_actuators(self):
         """Test parsing multiple actuator prims."""
-        from control import parse_actuator_prim, PDActuator
+        from newton_actuators import parse_actuator_prim, PDActuator
 
         prim1 = MockPrim(
             type_name="Actuator",
@@ -401,7 +401,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_non_actuator_prim_returns_none(self):
         """Test that non-Actuator prims return None."""
-        from control import parse_actuator_prim
+        from newton_actuators import parse_actuator_prim
 
         prim = MockPrim(
             type_name="Mesh",  # Not an Actuator
@@ -415,7 +415,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_actuator_without_targets_returns_none(self):
         """Test that actuator without targets returns None."""
-        from control import parse_actuator_prim
+        from newton_actuators import parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
