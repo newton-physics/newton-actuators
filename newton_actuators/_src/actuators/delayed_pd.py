@@ -198,10 +198,11 @@ class DelayedPDActuator(Actuator):
 
     def state(self) -> DelayedActuatorState:
         """Return a new state with allocated circular buffers."""
+        device = self.input_indices.device
         return DelayedActuatorState(
-            buffer_pos=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32),
-            buffer_vel=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32),
-            buffer_act=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32),
+            buffer_pos=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32, device=device),
+            buffer_vel=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32, device=device),
+            buffer_act=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32, device=device),
             write_idx=self.delay - 1,
             is_filled=False,
         )

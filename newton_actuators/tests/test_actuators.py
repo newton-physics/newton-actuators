@@ -105,8 +105,6 @@ class TestPDActuator(unittest.TestCase):
 
         # Run step
         actuator.step(sim_state, sim_control, None, None)
-        wp.synchronize()
-
         # Check forces: f = kp * (target - current) = 100 * [1, 2, 3] = [100, 200, 300]
         forces = sim_control.joint_f.numpy()
         np.testing.assert_allclose(forces, [100.0, 200.0, 300.0], rtol=1e-5)
@@ -170,6 +168,75 @@ class TestDelayedPDActuator(unittest.TestCase):
         """Test that resolve_arguments raises error if delay not provided."""
         with self.assertRaises(ValueError):
             DelayedPDActuator.resolve_arguments({"kp": 50.0})
+
+    def test_delayed_pd_delay_behavior(self):
+        """Test that DelayedPDActuator correctly delays targets by N steps."""
+        delay = 3
+        num_dofs = 1
+        indices = wp.array([0], dtype=wp.uint32)
+
+        # Create actuator with kp=1, kd=0 so force = target_pos - current_pos
+        actuator = DelayedPDActuator(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([1.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            delay=delay,
+            max_force=wp.array([1000.0], dtype=wp.float32),
+            gear=wp.array([0.0], dtype=wp.float32),
+            constant_force=wp.array([0.0], dtype=wp.float32),
+        )
+
+        # Create double-buffered states
+        stateA = actuator.state()
+        stateB = actuator.state()
+
+        # Track which targets we send and which forces we get
+        target_history = []
+        force_history = []
+
+        # Run for delay + 3 steps
+        for step in range(delay + 3):
+            target_value = float(step + 1) * 10.0  # T0=10, T1=20, T2=30, ...
+            target_history.append(target_value)
+
+            # Current state is always at position 0
+            sim_state = MockSimState(
+                joint_q=wp.array([0.0], dtype=wp.float32),
+                joint_qd=wp.array([0.0], dtype=wp.float32),
+            )
+            sim_control = MockSimControl(
+                joint_target_pos=wp.array([target_value], dtype=wp.float32),
+                joint_target_vel=wp.array([0.0], dtype=wp.float32),
+                joint_act=wp.array([0.0], dtype=wp.float32),
+                joint_f=wp.zeros(num_dofs, dtype=wp.float32),
+            )
+
+            # Alternate states (double buffering)
+            if step % 2 == 0:
+                current, next_state = stateA, stateB
+            else:
+                current, next_state = stateB, stateA
+
+            actuator.step(sim_state, sim_control, current, next_state, dt=0.01)
+            force_history.append(sim_control.joint_f.numpy()[0])
+
+        # For steps 0, 1, 2: is_filled=False, force should be 0
+        for i in range(delay):
+            self.assertEqual(force_history[i], 0.0, f"Step {i}: expected 0 force during fill phase")
+
+        # For step 3: should use target from step 0 (T0=10)
+        # force = kp * (delayed_target - current_pos) = 1 * (10 - 0) = 10
+        self.assertAlmostEqual(force_history[3], target_history[0], places=5,
+                               msg=f"Step 3: expected force={target_history[0]}, got {force_history[3]}")
+
+        # For step 4: should use target from step 1 (T1=20)
+        self.assertAlmostEqual(force_history[4], target_history[1], places=5,
+                               msg=f"Step 4: expected force={target_history[1]}, got {force_history[4]}")
+
+        # For step 5: should use target from step 2 (T2=30)
+        self.assertAlmostEqual(force_history[5], target_history[2], places=5,
+                               msg=f"Step 5: expected force={target_history[2]}, got {force_history[5]}")
 
 
 class TestPIDActuator(unittest.TestCase):
