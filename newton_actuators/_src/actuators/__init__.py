@@ -14,14 +14,13 @@
 # limitations under the License.
 
 from .base import Actuator
-from .delayed_pd import DelayedPDActuator
-from .pd import PDActuator
-from .pid import PIDActuator
+from .delayed_pd import ActuatorDelayedPD
+from .pd import ActuatorPD
+from .pid import ActuatorPID
 
 __all__ = [
     "Actuator",
-    "DelayedPDActuator",
-    "PDActuator",
-    "PIDActuator",
+    "ActuatorDelayedPD",
+    "ActuatorPD",
+    "ActuatorPID",
 ]
-

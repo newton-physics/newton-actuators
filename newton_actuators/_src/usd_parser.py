@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .actuators import PDActuator, PIDActuator, DelayedPDActuator
+from .actuators import ActuatorPD, ActuatorPID, ActuatorDelayedPD
 
 
 @dataclass
@@ -104,13 +104,13 @@ def determine_actuator_class(schemas: list[str]) -> type:
     has_pd = "PDControllerAPI" in schemas
 
     if has_delay and has_pd:
-        return DelayedPDActuator
+        return ActuatorDelayedPD
     elif has_pid:
-        return PIDActuator
+        return ActuatorPID
     elif has_pd:
-        return PDActuator
+        return ActuatorPD
     else:
-        return PDActuator
+        return ActuatorPD
 
 
 def extract_kwargs_from_prim(prim, schemas: list[str]) -> dict[str, Any]:
@@ -146,4 +146,3 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
         kwargs=extract_kwargs_from_prim(prim, schemas),
         transmission=list(transmission) if transmission else None,
     )
-

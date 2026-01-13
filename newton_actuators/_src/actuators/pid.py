@@ -16,16 +16,16 @@
 """Stateful PID controller actuator."""
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 import warp as wp
 
 from ..kernels import pid_controller_kernel, pid_integral_state_kernel
-from ..types import PIDActuatorState
 from .base import Actuator
 
 
-class PIDActuator(Actuator):
+class ActuatorPID(Actuator):
     """Stateful PID controller.
 
     Control law: τ = clamp(constant + gear*act + Kp*e + Ki*∫e·dt + Kd*ė, ±max_force)
@@ -34,9 +34,13 @@ class PIDActuator(Actuator):
     Stateful: maintains integral term with anti-windup clamping.
     """
 
-    State = PIDActuatorState
+    @dataclass
+    class State:
+        """Integral state for PID actuators."""
 
-    def _is_stateful(self) -> bool:
+        integral: wp.array = None  # Shape (N,)
+
+    def is_stateful(self) -> bool:
         return True
 
     @classmethod
@@ -123,7 +127,7 @@ class PIDActuator(Actuator):
         sim_control: Any,
         controller_output: wp.array,
         output_indices: wp.array,
-        current_state: PIDActuatorState,
+        current_state: "ActuatorPID.State",
         dt: float,
     ) -> None:
         """Compute PID control forces."""
@@ -156,8 +160,8 @@ class PIDActuator(Actuator):
         self,
         sim_state: Any,
         sim_control: Any,
-        current_state: PIDActuatorState,
-        next_state: PIDActuatorState,
+        current_state: "ActuatorPID.State",
+        next_state: "ActuatorPID.State",
         dt: float,
     ) -> None:
         """Update integral state."""
@@ -176,9 +180,9 @@ class PIDActuator(Actuator):
             outputs=[next_state.integral],
         )
 
-    def state(self) -> PIDActuatorState:
+    def state(self) -> "ActuatorPID.State":
         """Return a new state with zero-initialized integral."""
         device = self.input_indices.device
-        return PIDActuatorState(
+        return ActuatorPID.State(
             integral=wp.zeros(self.num_actuators, dtype=wp.float32, device=device),
         )

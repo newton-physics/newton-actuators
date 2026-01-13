@@ -79,11 +79,15 @@ class Actuator:
         self._sequential_indices = wp.array(np.arange(self.num_actuators, dtype=np.uint32), device=device)
         self._actuation_forces = None
 
-    def _is_stateful(self) -> bool:
-        """Return True if this actuator maintains internal state."""
+    def is_stateful(self) -> bool:
+        """Return True if this actuator maintains internal state.
+        
+        Users should check this to determine if they need to call the state() method
+        and manage double-buffered state objects.
+        """
         return False
 
-    def _has_transmission(self) -> bool:
+    def has_transmission(self) -> bool:
         """Return True if this actuator has a transmission phase."""
         return False
 
@@ -157,7 +161,7 @@ class Actuator:
             next_act_state: Next internal state (None if stateless).
             dt (float): Time step in seconds.
         """
-        if self._has_transmission():
+        if self.has_transmission():
             controller_output = self._actuation_forces
             controller_output_indices = self._sequential_indices
         else:
@@ -169,10 +173,10 @@ class Actuator:
             current_act_state, dt
         )
 
-        if self._is_stateful():
+        if self.is_stateful():
             self._run_state_manager(sim_state, sim_control, current_act_state, next_act_state, dt)
 
-        if self._has_transmission():
+        if self.has_transmission():
             self._run_transmission(self._actuation_forces, sim_control)
 
     def state(self) -> Any:

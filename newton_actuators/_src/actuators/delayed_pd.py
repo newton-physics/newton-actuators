@@ -16,16 +16,16 @@
 """PD controller with input delay."""
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 import warp as wp
 
 from ..kernels import delay_buffer_state_kernel, pd_controller_kernel
-from ..types import DelayedActuatorState
 from .base import Actuator
 
 
-class DelayedPDActuator(Actuator):
+class ActuatorDelayedPD(Actuator):
     """PD controller with input delay.
 
     Control law: τ = clamp(constant + gear*act_delayed + Kp*e_pos_delayed + Kd*e_vel_delayed, ±max_force)
@@ -35,9 +35,18 @@ class DelayedPDActuator(Actuator):
     """
 
     SCALAR_PARAMS = {"delay"}
-    State = DelayedActuatorState
 
-    def _is_stateful(self) -> bool:
+    @dataclass
+    class State:
+        """Circular buffer state for delayed actuators."""
+
+        buffer_pos: wp.array = None  # Shape (delay, N)
+        buffer_vel: wp.array = None  # Shape (delay, N)
+        buffer_act: wp.array = None  # Shape (delay, N)
+        write_idx: int = 0           # Last write position
+        is_filled: bool = False      # Buffer filled at least once
+
+    def is_stateful(self) -> bool:
         return True
 
     @classmethod
@@ -54,7 +63,7 @@ class DelayedPDActuator(Actuator):
             ValueError: If 'delay' not provided.
         """
         if "delay" not in args:
-            raise ValueError("DelayedPDActuator requires 'delay' argument")
+            raise ValueError("ActuatorDelayedPD requires 'delay' argument")
         return {
             "kp": args.get("kp", 0.0),
             "kd": args.get("kd", 0.0),
@@ -124,7 +133,7 @@ class DelayedPDActuator(Actuator):
         sim_control: Any,
         controller_output: wp.array,
         output_indices: wp.array,
-        current_state: DelayedActuatorState,
+        current_state: "ActuatorDelayedPD.State",
         dt: float,
     ) -> None:
         """Compute delayed PD control forces."""
@@ -161,8 +170,8 @@ class DelayedPDActuator(Actuator):
         self,
         sim_state: Any,
         sim_control: Any,
-        current_state: DelayedActuatorState,
-        next_state: DelayedActuatorState,
+        current_state: "ActuatorDelayedPD.State",
+        next_state: "ActuatorDelayedPD.State",
         dt: float,
     ) -> None:
         """Update circular delay buffer."""
@@ -196,10 +205,10 @@ class DelayedPDActuator(Actuator):
         next_state.write_idx = write_idx
         next_state.is_filled = current_state.is_filled or (write_idx == self.delay - 1)
 
-    def state(self) -> DelayedActuatorState:
+    def state(self) -> "ActuatorDelayedPD.State":
         """Return a new state with allocated circular buffers."""
         device = self.input_indices.device
-        return DelayedActuatorState(
+        return ActuatorDelayedPD.State(
             buffer_pos=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32, device=device),
             buffer_vel=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32, device=device),
             buffer_act=wp.zeros((self.delay, self.num_actuators), dtype=wp.float32, device=device),

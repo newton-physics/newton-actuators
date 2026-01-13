@@ -23,11 +23,9 @@ import warp as wp
 
 from newton_actuators import (
     Actuator,
-    DelayedActuatorState,
-    DelayedPDActuator,
-    PDActuator,
-    PIDActuator,
-    PIDActuatorState,
+    ActuatorDelayedPD,
+    ActuatorPD,
+    ActuatorPID,
 )
 
 
@@ -54,16 +52,16 @@ class MockSimControl:
     tendon_force: wp.array = None
 
 
-class TestPDActuator(unittest.TestCase):
-    """Tests for PDActuator."""
+class TestActuatorPD(unittest.TestCase):
+    """Tests for ActuatorPD."""
 
     def setUp(self):
         wp.init()
 
     def test_pd_actuator_creation(self):
-        """Test that PDActuator can be created with valid parameters."""
+        """Test that ActuatorPD can be created with valid parameters."""
         indices = wp.array([0, 1, 2], dtype=wp.uint32)
-        actuator = PDActuator(
+        actuator = ActuatorPD(
             input_indices=indices,
             output_indices=indices,
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
@@ -74,14 +72,15 @@ class TestPDActuator(unittest.TestCase):
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertIsNone(actuator.state())
+        self.assertFalse(actuator.is_stateful())
 
     def test_pd_actuator_step(self):
-        """Test that PDActuator.step() computes correct forces."""
+        """Test that ActuatorPD.step() computes correct forces."""
         num_dofs = 3
         indices = wp.array([0, 1, 2], dtype=wp.uint32)
 
         # Create actuator
-        actuator = PDActuator(
+        actuator = ActuatorPD(
             input_indices=indices,
             output_indices=indices,
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
@@ -111,23 +110,23 @@ class TestPDActuator(unittest.TestCase):
 
     def test_pd_actuator_resolve_arguments(self):
         """Test that resolve_arguments fills defaults correctly."""
-        resolved = PDActuator.resolve_arguments({"kp": 50.0})
+        resolved = ActuatorPD.resolve_arguments({"kp": 50.0})
         self.assertEqual(resolved["kp"], 50.0)
         self.assertEqual(resolved["kd"], 0.0)
         self.assertEqual(resolved["gear"], 1.0)
         self.assertEqual(resolved["constant_force"], 0.0)
 
 
-class TestDelayedPDActuator(unittest.TestCase):
-    """Tests for DelayedPDActuator."""
+class TestActuatorDelayedPD(unittest.TestCase):
+    """Tests for ActuatorDelayedPD."""
 
     def setUp(self):
         wp.init()
 
     def test_delayed_pd_creation(self):
-        """Test that DelayedPDActuator can be created with valid parameters."""
+        """Test that ActuatorDelayedPD can be created with valid parameters."""
         indices = wp.array([0, 1], dtype=wp.uint32)
-        actuator = DelayedPDActuator(
+        actuator = ActuatorDelayedPD(
             input_indices=indices,
             output_indices=indices,
             kp=wp.array([100.0, 100.0], dtype=wp.float32),
@@ -138,14 +137,15 @@ class TestDelayedPDActuator(unittest.TestCase):
             constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
+        self.assertTrue(actuator.is_stateful())
 
     def test_delayed_pd_state(self):
-        """Test that DelayedPDActuator.state() returns properly initialized state."""
+        """Test that ActuatorDelayedPD.state() returns properly initialized state."""
         delay = 5
         num_dofs = 2
         indices = wp.array([0, 1], dtype=wp.uint32)
 
-        actuator = DelayedPDActuator(
+        actuator = ActuatorDelayedPD(
             input_indices=indices,
             output_indices=indices,
             kp=wp.array([100.0, 100.0], dtype=wp.float32),
@@ -157,7 +157,7 @@ class TestDelayedPDActuator(unittest.TestCase):
         )
 
         state = actuator.state()
-        self.assertIsInstance(state, DelayedActuatorState)
+        self.assertIsInstance(state, ActuatorDelayedPD.State)
         self.assertEqual(state.write_idx, delay - 1)
         self.assertFalse(state.is_filled)
         self.assertEqual(state.buffer_pos.shape, (delay, num_dofs))
@@ -167,16 +167,16 @@ class TestDelayedPDActuator(unittest.TestCase):
     def test_delayed_pd_resolve_arguments_requires_delay(self):
         """Test that resolve_arguments raises error if delay not provided."""
         with self.assertRaises(ValueError):
-            DelayedPDActuator.resolve_arguments({"kp": 50.0})
+            ActuatorDelayedPD.resolve_arguments({"kp": 50.0})
 
     def test_delayed_pd_delay_behavior(self):
-        """Test that DelayedPDActuator correctly delays targets by N steps."""
+        """Test that ActuatorDelayedPD correctly delays targets by N steps."""
         delay = 3
         num_dofs = 1
         indices = wp.array([0], dtype=wp.uint32)
 
         # Create actuator with kp=1, kd=0 so force = target_pos - current_pos
-        actuator = DelayedPDActuator(
+        actuator = ActuatorDelayedPD(
             input_indices=indices,
             output_indices=indices,
             kp=wp.array([1.0], dtype=wp.float32),
@@ -239,16 +239,16 @@ class TestDelayedPDActuator(unittest.TestCase):
                                msg=f"Step 5: expected force={target_history[2]}, got {force_history[5]}")
 
 
-class TestPIDActuator(unittest.TestCase):
-    """Tests for PIDActuator."""
+class TestActuatorPID(unittest.TestCase):
+    """Tests for ActuatorPID."""
 
     def setUp(self):
         wp.init()
 
     def test_pid_actuator_creation(self):
-        """Test that PIDActuator can be created with valid parameters."""
+        """Test that ActuatorPID can be created with valid parameters."""
         indices = wp.array([0, 1], dtype=wp.uint32)
-        actuator = PIDActuator(
+        actuator = ActuatorPID(
             input_indices=indices,
             output_indices=indices,
             kp=wp.array([100.0, 100.0], dtype=wp.float32),
@@ -260,13 +260,14 @@ class TestPIDActuator(unittest.TestCase):
             constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
+        self.assertTrue(actuator.is_stateful())
 
     def test_pid_actuator_state(self):
-        """Test that PIDActuator.state() returns properly initialized state."""
+        """Test that ActuatorPID.state() returns properly initialized state."""
         num_dofs = 2
         indices = wp.array([0, 1], dtype=wp.uint32)
 
-        actuator = PIDActuator(
+        actuator = ActuatorPID(
             input_indices=indices,
             output_indices=indices,
             kp=wp.array([100.0, 100.0], dtype=wp.float32),
@@ -279,7 +280,7 @@ class TestPIDActuator(unittest.TestCase):
         )
 
         state = actuator.state()
-        self.assertIsInstance(state, PIDActuatorState)
+        self.assertIsInstance(state, ActuatorPID.State)
         self.assertEqual(state.integral.shape[0], num_dofs)
 
         np.testing.assert_array_equal(state.integral.numpy(), [0.0, 0.0])
@@ -343,7 +344,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_pd_actuator_prim(self):
         """Test parsing a PD actuator prim."""
-        from newton_actuators import parse_actuator_prim, PDActuator
+        from newton_actuators import parse_actuator_prim, ActuatorPD
 
         prim = MockPrim(
             type_name="Actuator",
@@ -360,14 +361,14 @@ class TestActuatorParser(unittest.TestCase):
         result = parse_actuator_prim(prim)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.actuator_class, PDActuator)
+        self.assertEqual(result.actuator_class, ActuatorPD)
         self.assertEqual(result.target_paths, ["/World/Robot/Joint1"])
         self.assertEqual(result.kwargs.get("kp"), 100.0)
         self.assertEqual(result.kwargs.get("kd"), 10.0)
 
     def test_parse_delayed_pd_actuator_prim(self):
         """Test parsing a Delayed PD actuator prim."""
-        from newton_actuators import parse_actuator_prim, DelayedPDActuator
+        from newton_actuators import parse_actuator_prim, ActuatorDelayedPD
 
         prim = MockPrim(
             type_name="Actuator",
@@ -384,13 +385,13 @@ class TestActuatorParser(unittest.TestCase):
         result = parse_actuator_prim(prim)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.actuator_class, DelayedPDActuator)
+        self.assertEqual(result.actuator_class, ActuatorDelayedPD)
         self.assertEqual(result.kwargs.get("kp"), 50.0)
         self.assertEqual(result.kwargs.get("delay"), 5)
 
     def test_parse_pid_actuator_prim(self):
         """Test parsing a PID actuator prim."""
-        from newton_actuators import parse_actuator_prim, PIDActuator
+        from newton_actuators import parse_actuator_prim, ActuatorPID
 
         prim = MockPrim(
             type_name="Actuator",
@@ -408,7 +409,7 @@ class TestActuatorParser(unittest.TestCase):
         result = parse_actuator_prim(prim)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.actuator_class, PIDActuator)
+        self.assertEqual(result.actuator_class, ActuatorPID)
         self.assertEqual(result.kwargs.get("kp"), 100.0)
         self.assertEqual(result.kwargs.get("ki"), 5.0)
 
@@ -440,7 +441,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_multiple_actuators(self):
         """Test parsing multiple actuator prims."""
-        from newton_actuators import parse_actuator_prim, PDActuator
+        from newton_actuators import parse_actuator_prim, ActuatorPD
 
         prim1 = MockPrim(
             type_name="Actuator",
@@ -460,7 +461,7 @@ class TestActuatorParser(unittest.TestCase):
 
         self.assertIsNotNone(result1)
         self.assertIsNotNone(result2)
-        self.assertEqual(result1.actuator_class, PDActuator)
+        self.assertEqual(result1.actuator_class, ActuatorPD)
         self.assertEqual(result1.target_paths, ["/World/Robot/Joint1"])
         self.assertEqual(result1.kwargs.get("kp"), 100.0)
         self.assertEqual(result2.target_paths, ["/World/Robot/Joint2"])
@@ -497,4 +498,3 @@ class TestActuatorParser(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -24,7 +24,7 @@ from ..kernels import pd_controller_kernel
 from .base import Actuator
 
 
-class PDActuator(Actuator):
+class ActuatorPD(Actuator):
     """Stateless PD controller.
 
     Control law: τ = clamp(constant + gear*act + Kp*e_pos + Kd*e_vel, ±max_force)
