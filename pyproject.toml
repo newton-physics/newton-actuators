@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "newton-actuators"
 dynamic = ["version"]
 license = "Apache-2.0"
+license-files = ["LICENSE.md"]
 authors = [{ name = "Newton Developers", email = "warp-python@nvidia.com" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
