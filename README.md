@@ -1,3 +1,8 @@
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/newton-physics/newton-actuators/main)
+
+**This project is in active beta development.** This means the API is unstable, features may be added or removed, and breaking changes are likely to occur frequently and without notice as the design is refined.
+
 # Newton Actuators
 
 GPU-accelerated actuator library for physics simulations.
