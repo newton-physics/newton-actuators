@@ -34,8 +34,8 @@ pip install -e .
 
 #### Control Laws
 
-- **ActuatorPD**: `τ = clamp(constant + gear*act + Kp*e_pos + Kd*e_vel, ±max_force)`
-- **ActuatorPID**: `τ = clamp(constant + gear*act + Kp*e + Ki*∫e·dt + Kd*ė, ±max_force)`
+- **ActuatorPD**: `τ = clamp(constant + act + Kp*e_pos + Kd*e_vel, ±max_force)`
+- **ActuatorPID**: `τ = clamp(constant + act + Kp*e + Ki*∫e·dt + Kd*ė, ±max_force)`
 - **ActuatorDelayedPD**: Same as PD but with delayed targets (circular buffer)
 
 ### Base Class Methods
@@ -79,7 +79,6 @@ pd_actuator = ActuatorPD(
     kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
     kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
     max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
-    gear=wp.array([1.0, 1.0, 1.0], dtype=wp.float32),
     constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
 )
 
@@ -102,7 +101,6 @@ pid_actuator = ActuatorPID(
     kd=wp.array([5.0, 5.0], dtype=wp.float32),
     max_force=wp.array([50.0, 50.0], dtype=wp.float32),
     integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-    gear=wp.array([1.0, 1.0], dtype=wp.float32),
     constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
 )
 

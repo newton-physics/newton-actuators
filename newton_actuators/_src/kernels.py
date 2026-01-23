@@ -31,11 +31,10 @@ def pd_controller_kernel(
     kp: wp.array(dtype=float),
     kd: wp.array(dtype=float),
     max_force: wp.array(dtype=float),
-    gear: wp.array(dtype=float),
     constant_force: wp.array(dtype=float),
     output: wp.array(dtype=float),
 ):
-    """PD control: f = clamp(constant + gear*act + kp*e_pos + kd*e_vel, ±max_force). Adds to output."""
+    """PD control: f = clamp(constant + act + kp*e_pos + kd*e_vel, ±max_force). Adds to output."""
     i = wp.tid()
     state_idx = state_indices[i]
     target_idx = target_indices[i]
@@ -44,7 +43,7 @@ def pd_controller_kernel(
     position_error = target_pos[target_idx] - current_pos[state_idx]
     velocity_error = target_vel[target_idx] - current_vel[state_idx]
 
-    force = constant_force[i] + gear[i] * control_input[target_idx] + kp[i] * position_error + kd[i] * velocity_error
+    force = constant_force[i] + control_input[target_idx] + kp[i] * position_error + kd[i] * velocity_error
     force = wp.clamp(force, -max_force[i], max_force[i])
 
     output[out_idx] = output[out_idx] + force
@@ -65,7 +64,6 @@ def pid_controller_kernel(
     kd: wp.array(dtype=float),
     max_force: wp.array(dtype=float),
     integral_max: wp.array(dtype=float),
-    gear: wp.array(dtype=float),
     constant_force: wp.array(dtype=float),
     dt: float,
     current_integral: wp.array(dtype=float),
@@ -85,7 +83,7 @@ def pid_controller_kernel(
 
     force = (
         constant_force[i]
-        + gear[i] * control_input[target_idx]
+        + control_input[target_idx]
         + kp[i] * position_error
         + ki[i] * integral
         + kd[i] * velocity_error

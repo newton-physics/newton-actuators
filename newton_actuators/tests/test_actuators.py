@@ -67,7 +67,6 @@ class TestActuatorPD(unittest.TestCase):
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
             kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
-            gear=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
             constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
@@ -86,7 +85,6 @@ class TestActuatorPD(unittest.TestCase):
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
             kd=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
             max_force=wp.array([1000.0, 1000.0, 1000.0], dtype=wp.float32),
-            gear=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
             constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
         )
 
@@ -113,7 +111,6 @@ class TestActuatorPD(unittest.TestCase):
         resolved = ActuatorPD.resolve_arguments({"kp": 50.0})
         self.assertEqual(resolved["kp"], 50.0)
         self.assertEqual(resolved["kd"], 0.0)
-        self.assertEqual(resolved["gear"], 1.0)
         self.assertEqual(resolved["constant_force"], 0.0)
 
 
@@ -133,7 +130,6 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([10.0, 10.0], dtype=wp.float32),
             delay=5,
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-            gear=wp.array([0.0, 0.0], dtype=wp.float32),
             constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
@@ -152,7 +148,6 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([10.0, 10.0], dtype=wp.float32),
             delay=delay,
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-            gear=wp.array([0.0, 0.0], dtype=wp.float32),
             constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
         )
 
@@ -183,7 +178,6 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([0.0], dtype=wp.float32),
             delay=delay,
             max_force=wp.array([1000.0], dtype=wp.float32),
-            gear=wp.array([0.0], dtype=wp.float32),
             constant_force=wp.array([0.0], dtype=wp.float32),
         )
 
@@ -256,7 +250,6 @@ class TestActuatorPID(unittest.TestCase):
             kd=wp.array([5.0, 5.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
             integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-            gear=wp.array([0.0, 0.0], dtype=wp.float32),
             constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
@@ -275,7 +268,6 @@ class TestActuatorPID(unittest.TestCase):
             kd=wp.array([5.0, 5.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
             integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-            gear=wp.array([0.0, 0.0], dtype=wp.float32),
             constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
         )
 
