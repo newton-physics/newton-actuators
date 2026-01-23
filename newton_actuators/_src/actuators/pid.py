@@ -28,9 +28,9 @@ from .base import Actuator
 class ActuatorPID(Actuator):
     """Stateful PID controller.
 
-    Control law: τ = clamp(constant + gear*act + Kp*e + Ki*∫e·dt + Kd*ė, ±max_force)
+    Control law: τ = clamp(constant + act + Kp*e + Ki*∫e·dt + Kd*ė, ±max_force)
 
-    Gains (Kp, Ki, Kd) operate in joint space. Gear scales feedforward input independently.
+    Gains (Kp, Ki, Kd) operate in joint space.
     Stateful: maintains integral term with anti-windup clamping.
     """
 
@@ -51,7 +51,7 @@ class ActuatorPID(Actuator):
             args (dict): User-provided arguments.
 
         Returns:
-            dict: Arguments with defaults (kp=0, ki=0, kd=0, max_force=inf, integral_max=inf, gear=1, constant_force=0).
+            dict: Arguments with defaults (kp=0, ki=0, kd=0, max_force=inf, integral_max=inf, constant_force=0).
         """
         return {
             "kp": args.get("kp", 0.0),
@@ -59,7 +59,6 @@ class ActuatorPID(Actuator):
             "kd": args.get("kd", 0.0),
             "max_force": args.get("max_force", math.inf),
             "integral_max": args.get("integral_max", math.inf),
-            "gear": args.get("gear", 1.0),
             "constant_force": args.get("constant_force", 0.0),
         }
 
@@ -72,7 +71,6 @@ class ActuatorPID(Actuator):
         kd: wp.array,
         max_force: wp.array,
         integral_max: wp.array,
-        gear: wp.array,
         constant_force: wp.array,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
@@ -91,7 +89,6 @@ class ActuatorPID(Actuator):
             kd (wp.array): Derivative gains. Shape (N,).
             max_force (wp.array): Force limits. Shape (N,).
             integral_max (wp.array): Anti-windup limits. Shape (N,).
-            gear (wp.array): Gear ratios. Shape (N,).
             constant_force (wp.array): Constant offsets. Shape (N,).
             state_pos_attr (str): Attribute on sim_state for positions.
             state_vel_attr (str): Attribute on sim_state for velocities.
@@ -103,7 +100,7 @@ class ActuatorPID(Actuator):
         super().__init__(input_indices, output_indices, control_output_attr)
 
         for name, arr in [("kp", kp), ("ki", ki), ("kd", kd), ("max_force", max_force), 
-                          ("integral_max", integral_max), ("gear", gear), ("constant_force", constant_force)]:
+                          ("integral_max", integral_max), ("constant_force", constant_force)]:
             if len(arr) != self.num_actuators:
                 raise ValueError(f"{name} length ({len(arr)}) must match num_actuators ({self.num_actuators})")
 
@@ -112,7 +109,6 @@ class ActuatorPID(Actuator):
         self.kd = kd
         self.max_force = max_force
         self.integral_max = integral_max
-        self.gear = gear
         self.constant_force = constant_force
 
         self.state_pos_attr = state_pos_attr
@@ -148,7 +144,6 @@ class ActuatorPID(Actuator):
                 self.kd,
                 self.max_force,
                 self.integral_max,
-                self.gear,
                 self.constant_force,
                 dt,
                 current_state.integral,
