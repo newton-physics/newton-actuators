@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .actuators import ActuatorPD, ActuatorPID, ActuatorDelayedPD
+from .actuators import ActuatorDelayedPD, ActuatorPD, ActuatorPID
 
 
 @dataclass
@@ -38,6 +38,7 @@ API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
         "kp": "kp",
         "kd": "kd",
         "maxForce": "max_force",
+        "gear": "gear",
         "constForce": "constant_force",
     },
     "PIDControllerAPI": {
@@ -46,6 +47,7 @@ API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
         "kd": "kd",
         "maxForce": "max_force",
         "integralMax": "integral_max",
+        "gear": "gear",
         "constForce": "constant_force",
     },
     "DelayAPI": {
@@ -84,14 +86,14 @@ def infer_schemas_from_prim(prim) -> list[str]:
     """Infer actuator schemas from attribute names."""
     attr_names = get_actuator_attribute_names(prim)
     schemas = []
-    
+
     if "ki" in attr_names:
         schemas.append("PIDControllerAPI")
     elif "kp" in attr_names or "kd" in attr_names:
-        schemas.append("PDControllerAPI")   
+        schemas.append("PDControllerAPI")
     if "delay" in attr_names:
         schemas.append("DelayAPI")
-    
+
     return schemas
 
 
@@ -135,7 +137,7 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
         return None
 
     schemas = infer_schemas_from_prim(prim)
-    
+
     transmission = get_attribute(prim, "newton:actuator:transmission")
 
     return ParsedActuator(

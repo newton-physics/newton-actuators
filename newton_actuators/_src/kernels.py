@@ -31,19 +31,29 @@ def pd_controller_kernel(
     kp: wp.array(dtype=float),
     kd: wp.array(dtype=float),
     max_force: wp.array(dtype=float),
+    gear: wp.array(dtype=float),
     constant_force: wp.array(dtype=float),
     output: wp.array(dtype=float),
 ):
-    """PD control: f = clamp(constant + act + kp*e_pos + kd*e_vel, ±max_force). Adds to output."""
+    """PD control: f = clamp(G*(constant + act + kp*(target_pos - G*q) + kd*(target_vel - G*v)), ±max_force). Adds to output."""
     i = wp.tid()
     state_idx = state_indices[i]
     target_idx = target_indices[i]
     out_idx = output_indices[i]
 
-    position_error = target_pos[target_idx] - current_pos[state_idx]
-    velocity_error = target_vel[target_idx] - current_vel[state_idx]
+    g = gear[i]
+    position_error = target_pos[target_idx] - g * current_pos[state_idx]
+    velocity_error = target_vel[target_idx] - g * current_vel[state_idx]
 
-    force = constant_force[i] + control_input[target_idx] + kp[i] * position_error + kd[i] * velocity_error
+    const_f = float(0.0)
+    if constant_force:
+        const_f = constant_force[i]
+
+    act = float(0.0)
+    if control_input:
+        act = control_input[target_idx]
+
+    force = g * (const_f + act + kp[i] * position_error + kd[i] * velocity_error)
     force = wp.clamp(force, -max_force[i], max_force[i])
 
     output[out_idx] = output[out_idx] + force
@@ -64,30 +74,34 @@ def pid_controller_kernel(
     kd: wp.array(dtype=float),
     max_force: wp.array(dtype=float),
     integral_max: wp.array(dtype=float),
+    gear: wp.array(dtype=float),
     constant_force: wp.array(dtype=float),
     dt: float,
     current_integral: wp.array(dtype=float),
     output: wp.array(dtype=float),
 ):
-    """PID control with anti-windup. Adds to output."""
+    """PID control with anti-windup: f = clamp(G*(constant + act + kp*(target_pos - G*q) + ki*integral + kd*(target_vel - G*v)), ±max_force). Adds to output."""
     i = wp.tid()
     state_idx = state_indices[i]
     target_idx = target_indices[i]
     out_idx = output_indices[i]
 
-    position_error = target_pos[target_idx] - current_pos[state_idx]
-    velocity_error = target_vel[target_idx] - current_vel[state_idx]
+    g = gear[i]
+    position_error = target_pos[target_idx] - g * current_pos[state_idx]
+    velocity_error = target_vel[target_idx] - g * current_vel[state_idx]
 
     integral = current_integral[i] + position_error * dt
     integral = wp.clamp(integral, -integral_max[i], integral_max[i])
 
-    force = (
-        constant_force[i]
-        + control_input[target_idx]
-        + kp[i] * position_error
-        + ki[i] * integral
-        + kd[i] * velocity_error
-    )
+    const_f = float(0.0)
+    if constant_force:
+        const_f = constant_force[i]
+
+    act = float(0.0)
+    if control_input:
+        act = control_input[target_idx]
+
+    force = g * (const_f + act + kp[i] * position_error + ki[i] * integral + kd[i] * velocity_error)
     force = wp.clamp(force, -max_force[i], max_force[i])
 
     output[out_idx] = output[out_idx] + force
@@ -100,6 +114,7 @@ def pid_integral_state_kernel(
     state_indices: wp.array(dtype=wp.uint32),
     target_indices: wp.array(dtype=wp.uint32),
     integral_max: wp.array(dtype=float),
+    gear: wp.array(dtype=float),
     dt: float,
     current_integral: wp.array(dtype=float),
     next_integral: wp.array(dtype=float),
@@ -109,7 +124,8 @@ def pid_integral_state_kernel(
     state_idx = state_indices[i]
     target_idx = target_indices[i]
 
-    position_error = target_pos[target_idx] - current_pos[state_idx]
+    g = gear[i]
+    position_error = target_pos[target_idx] - g * current_pos[state_idx]
 
     integral = current_integral[i] + position_error * dt
     integral = wp.clamp(integral, -integral_max[i], integral_max[i])

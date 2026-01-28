@@ -27,9 +27,8 @@ from .base import Actuator
 class ActuatorPD(Actuator):
     """Stateless PD controller.
 
-    Control law: τ = clamp(constant + act + Kp*e_pos + Kd*e_vel, ±max_force)
+    Control law: τ = clamp(G·[constant + act + Kp·(target_pos - G·q) + Kd·(target_vel - G·v)], ±max_force)
 
-    Gains (Kp, Kd) operate in joint space.
     Stateless: no internal memory, computes torques directly from current state.
     """
 
@@ -41,12 +40,13 @@ class ActuatorPD(Actuator):
             args (dict): User-provided arguments.
 
         Returns:
-            dict: Arguments with defaults (kp=0, kd=0, max_force=inf, constant_force=0).
+            dict: Arguments with defaults (kp=0, kd=0, max_force=inf, gear=1, constant_force=0).
         """
         return {
             "kp": args.get("kp", 0.0),
             "kd": args.get("kd", 0.0),
             "max_force": args.get("max_force", math.inf),
+            "gear": args.get("gear", 1.0),
             "constant_force": args.get("constant_force", 0.0),
         }
 
@@ -57,7 +57,8 @@ class ActuatorPD(Actuator):
         kp: wp.array,
         kd: wp.array,
         max_force: wp.array,
-        constant_force: wp.array,
+        gear: wp.array,
+        constant_force: wp.array = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
         control_target_pos_attr: str = "joint_target_pos",
@@ -73,23 +74,30 @@ class ActuatorPD(Actuator):
             kp (wp.array): Proportional gains. Shape (N,).
             kd (wp.array): Derivative gains. Shape (N,).
             max_force (wp.array): Force limits. Shape (N,).
-            constant_force (wp.array): Constant offsets. Shape (N,).
+            gear (wp.array): Gear ratios. Shape (N,).
+            constant_force (wp.array, optional): Constant offsets. Shape (N,). None to skip.
             state_pos_attr (str): Attribute on sim_state for positions.
             state_vel_attr (str): Attribute on sim_state for velocities.
             control_target_pos_attr (str): Attribute on sim_control for target positions.
             control_target_vel_attr (str): Attribute on sim_control for target velocities.
-            control_input_attr (str): Attribute on sim_control for control input.
+            control_input_attr (str): Attribute on sim_control for control input. None to skip.
             control_output_attr (str): Attribute on sim_control for output forces.
         """
         super().__init__(input_indices, output_indices, control_output_attr)
 
-        for name, arr in [("kp", kp), ("kd", kd), ("max_force", max_force), ("constant_force", constant_force)]:
+        for name, arr in [("kp", kp), ("kd", kd), ("max_force", max_force), ("gear", gear)]:
             if len(arr) != self.num_actuators:
                 raise ValueError(f"{name} length ({len(arr)}) must match num_actuators ({self.num_actuators})")
+
+        if constant_force is not None and len(constant_force) != self.num_actuators:
+            raise ValueError(
+                f"constant_force length ({len(constant_force)}) must match num_actuators ({self.num_actuators})"
+            )
 
         self.kp = kp
         self.kd = kd
         self.max_force = max_force
+        self.gear = gear
         self.constant_force = constant_force
 
         self.state_pos_attr = state_pos_attr
@@ -108,6 +116,10 @@ class ActuatorPD(Actuator):
         dt: float,
     ) -> None:
         """Compute PD control forces."""
+        control_input = None
+        if self.control_input_attr is not None:
+            control_input = getattr(sim_control, self.control_input_attr, None)
+
         wp.launch(
             kernel=pd_controller_kernel,
             dim=self.num_actuators,
@@ -116,13 +128,14 @@ class ActuatorPD(Actuator):
                 getattr(sim_state, self.state_vel_attr),
                 getattr(sim_control, self.control_target_pos_attr),
                 getattr(sim_control, self.control_target_vel_attr),
-                getattr(sim_control, self.control_input_attr),
+                control_input,
                 self.input_indices,
                 self.input_indices,
                 output_indices,
                 self.kp,
                 self.kd,
                 self.max_force,
+                self.gear,
                 self.constant_force,
             ],
             outputs=[controller_output],
