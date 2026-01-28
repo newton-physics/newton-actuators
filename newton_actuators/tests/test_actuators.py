@@ -67,7 +67,7 @@ class TestActuatorPD(unittest.TestCase):
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
             kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
-            constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
+            gear=wp.array([1.0, 1.0, 1.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertIsNone(actuator.state())
@@ -85,7 +85,7 @@ class TestActuatorPD(unittest.TestCase):
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
             kd=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
             max_force=wp.array([1000.0, 1000.0, 1000.0], dtype=wp.float32),
-            constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
+            gear=wp.array([1.0, 1.0, 1.0], dtype=wp.float32),
         )
 
         # Create mock state and control
@@ -130,7 +130,7 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([10.0, 10.0], dtype=wp.float32),
             delay=5,
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-            constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
+            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
@@ -148,7 +148,7 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([10.0, 10.0], dtype=wp.float32),
             delay=delay,
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-            constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
+            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
 
         state = actuator.state()
@@ -178,7 +178,7 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([0.0], dtype=wp.float32),
             delay=delay,
             max_force=wp.array([1000.0], dtype=wp.float32),
-            constant_force=wp.array([0.0], dtype=wp.float32),
+            gear=wp.array([1.0], dtype=wp.float32),
         )
 
         # Create double-buffered states
@@ -221,16 +221,28 @@ class TestActuatorDelayedPD(unittest.TestCase):
 
         # For step 3: should use target from step 0 (T0=10)
         # force = kp * (delayed_target - current_pos) = 1 * (10 - 0) = 10
-        self.assertAlmostEqual(force_history[3], target_history[0], places=5,
-                               msg=f"Step 3: expected force={target_history[0]}, got {force_history[3]}")
+        self.assertAlmostEqual(
+            force_history[3],
+            target_history[0],
+            places=5,
+            msg=f"Step 3: expected force={target_history[0]}, got {force_history[3]}",
+        )
 
         # For step 4: should use target from step 1 (T1=20)
-        self.assertAlmostEqual(force_history[4], target_history[1], places=5,
-                               msg=f"Step 4: expected force={target_history[1]}, got {force_history[4]}")
+        self.assertAlmostEqual(
+            force_history[4],
+            target_history[1],
+            places=5,
+            msg=f"Step 4: expected force={target_history[1]}, got {force_history[4]}",
+        )
 
         # For step 5: should use target from step 2 (T2=30)
-        self.assertAlmostEqual(force_history[5], target_history[2], places=5,
-                               msg=f"Step 5: expected force={target_history[2]}, got {force_history[5]}")
+        self.assertAlmostEqual(
+            force_history[5],
+            target_history[2],
+            places=5,
+            msg=f"Step 5: expected force={target_history[2]}, got {force_history[5]}",
+        )
 
 
 class TestActuatorPID(unittest.TestCase):
@@ -250,7 +262,7 @@ class TestActuatorPID(unittest.TestCase):
             kd=wp.array([5.0, 5.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
             integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-            constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
+            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
@@ -268,7 +280,7 @@ class TestActuatorPID(unittest.TestCase):
             kd=wp.array([5.0, 5.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
             integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-            constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
+            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
 
         state = actuator.state()
@@ -336,7 +348,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_pd_actuator_prim(self):
         """Test parsing a PD actuator prim."""
-        from newton_actuators import parse_actuator_prim, ActuatorPD
+        from newton_actuators import ActuatorPD, parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -360,7 +372,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_delayed_pd_actuator_prim(self):
         """Test parsing a Delayed PD actuator prim."""
-        from newton_actuators import parse_actuator_prim, ActuatorDelayedPD
+        from newton_actuators import ActuatorDelayedPD, parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -383,7 +395,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_pid_actuator_prim(self):
         """Test parsing a PID actuator prim."""
-        from newton_actuators import parse_actuator_prim, ActuatorPID
+        from newton_actuators import ActuatorPID, parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -416,11 +428,13 @@ class TestActuatorParser(unittest.TestCase):
                 "newton:actuator:transmission": MockAttribute([0.5, 0.3, 0.2], "newton:actuator:transmission"),
             },
             relationships={
-                "newton:actuator:target": MockRelationship([
-                    "/World/Robot/Joint1",
-                    "/World/Robot/Joint2",
-                    "/World/Robot/Joint3",
-                ]),
+                "newton:actuator:target": MockRelationship(
+                    [
+                        "/World/Robot/Joint1",
+                        "/World/Robot/Joint2",
+                        "/World/Robot/Joint3",
+                    ]
+                ),
             },
             schemas=["PDControllerAPI"],
         )
@@ -433,7 +447,7 @@ class TestActuatorParser(unittest.TestCase):
 
     def test_parse_multiple_actuators(self):
         """Test parsing multiple actuator prims."""
-        from newton_actuators import parse_actuator_prim, ActuatorPD
+        from newton_actuators import ActuatorPD, parse_actuator_prim
 
         prim1 = MockPrim(
             type_name="Actuator",

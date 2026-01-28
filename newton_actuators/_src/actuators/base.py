@@ -68,11 +68,9 @@ class Actuator:
         self.control_output_attr = control_output_attr
         self.num_actuators = len(input_indices)
 
-
         if len(output_indices) != self.num_actuators:
             raise ValueError(
-                f"output_indices length ({len(output_indices)}) must match "
-                f"input_indices length ({self.num_actuators})"
+                f"output_indices length ({len(output_indices)}) must match input_indices length ({self.num_actuators})"
             )
 
         device = input_indices.device
@@ -81,7 +79,7 @@ class Actuator:
 
     def is_stateful(self) -> bool:
         """Return True if this actuator maintains internal state.
-        
+
         Users should check this to determine if they need to call the state() method
         and manage double-buffered state objects.
         """
@@ -169,8 +167,7 @@ class Actuator:
             controller_output_indices = self.output_indices
 
         self._run_controller(
-            sim_state, sim_control, controller_output, controller_output_indices,
-            current_act_state, dt
+            sim_state, sim_control, controller_output, controller_output_indices, current_act_state, dt
         )
 
         if self.is_stateful():
