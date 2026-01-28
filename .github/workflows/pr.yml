@@ -1,0 +1,19 @@
+name: Pull Request
+permissions:
+  contents: read
+
+on:
+  merge_group:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-on-${{ github.event_name }}-from-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  run-tests:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
