@@ -880,28 +880,6 @@ class TestActuatorParser(unittest.TestCase):
         with self.assertRaises(ValueError, msg="negative velocity_limit should raise ValueError"):
             parse_actuator_prim(prim)
 
-    def test_parse_dc_motor_only_saturation_effort_infers_schema(self):
-        """Test that presence of saturationEffort alone triggers DCMotorAPI schema."""
-        from newton_actuators import ActuatorDCMotor, parse_actuator_prim
-
-        prim = MockPrim(
-            type_name="Actuator",
-            attributes={
-                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
-                "newton:actuator:saturationEffort": MockAttribute(80.0, "newton:actuator:saturationEffort"),
-            },
-            relationships={
-                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
-            },
-        )
-
-        result = parse_actuator_prim(prim)
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result.actuator_class, ActuatorDCMotor)
-        self.assertEqual(result.kwargs.get("saturation_effort"), 80.0)
-        self.assertIsNone(result.kwargs.get("velocity_limit"))
-
 
 if __name__ == "__main__":
     unittest.main()

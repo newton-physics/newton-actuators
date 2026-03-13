@@ -95,7 +95,7 @@ def infer_schemas_from_prim(prim) -> list[str]:
         schemas.append("PDControllerAPI")
     if "delay" in attr_names:
         schemas.append("DelayAPI")
-    if "saturationEffort" in attr_names or "velocityLimit" in attr_names:
+    if "saturationEffort" in attr_names and "velocityLimit" in attr_names:
         schemas.append("DCMotorAPI")
 
     return schemas
