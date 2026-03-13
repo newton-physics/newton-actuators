@@ -23,9 +23,11 @@ import warp as wp
 
 from newton_actuators import (
     Actuator,
+    ActuatorDCMotor,
     ActuatorDelayedPD,
     ActuatorPD,
     ActuatorPID,
+    ActuatorRemotizedPD,
 )
 
 
@@ -283,6 +285,324 @@ class TestActuatorPID(unittest.TestCase):
         np.testing.assert_array_equal(state.integral.numpy(), [0.0, 0.0])
 
 
+class TestActuatorDCMotor(unittest.TestCase):
+    """Tests for ActuatorDCMotor."""
+
+    def setUp(self):
+        wp.init()
+
+    def test_dc_motor_creation(self):
+        """Test that ActuatorDCMotor can be created with valid parameters."""
+        indices = wp.array([0, 1], dtype=wp.uint32)
+        actuator = ActuatorDCMotor(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([100.0, 100.0], dtype=wp.float32),
+            kd=wp.array([10.0, 10.0], dtype=wp.float32),
+            max_force=wp.array([50.0, 50.0], dtype=wp.float32),
+            saturation_effort=wp.array([80.0, 80.0], dtype=wp.float32),
+            velocity_limit=wp.array([10.0, 10.0], dtype=wp.float32),
+        )
+        self.assertIsInstance(actuator, Actuator)
+        self.assertFalse(actuator.is_stateful())
+        self.assertIsNone(actuator.state())
+
+    def test_dc_motor_resolve_arguments_requires_velocity_limit(self):
+        """Test that resolve_arguments raises error if velocity_limit not provided."""
+        with self.assertRaises(ValueError):
+            ActuatorDCMotor.resolve_arguments({"kp": 50.0})
+
+    def test_dc_motor_resolve_arguments(self):
+        """Test that resolve_arguments fills defaults correctly."""
+        resolved = ActuatorDCMotor.resolve_arguments({"kp": 50.0, "velocity_limit": 10.0})
+        self.assertEqual(resolved["kp"], 50.0)
+        self.assertEqual(resolved["kd"], 0.0)
+        self.assertEqual(resolved["velocity_limit"], 10.0)
+
+    def test_dc_motor_zero_velocity_full_torque(self):
+        """At zero velocity, DC motor can produce full torque up to saturation/max_force."""
+        indices = wp.array([0], dtype=wp.uint32)
+        actuator = ActuatorDCMotor(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([100.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            max_force=wp.array([200.0], dtype=wp.float32),
+            saturation_effort=wp.array([150.0], dtype=wp.float32),
+            velocity_limit=wp.array([10.0], dtype=wp.float32),
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32),
+            joint_qd=wp.array([0.0], dtype=wp.float32),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32),
+            joint_act=wp.array([0.0], dtype=wp.float32),
+            joint_f=wp.zeros(1, dtype=wp.float32),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        force = sim_control.joint_f.numpy()[0]
+        # PD force = 100*(1-0) = 100, at v=0: max_torque = clamp(150*(1-0), 0, 200) = 150
+        # 100 < 150, so not clipped
+        self.assertAlmostEqual(force, 100.0, places=3)
+
+    def test_dc_motor_velocity_reduces_max_torque(self):
+        """At high velocity, available torque in direction of motion is reduced."""
+        indices = wp.array([0], dtype=wp.uint32)
+        actuator = ActuatorDCMotor(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([1000.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            max_force=wp.array([200.0], dtype=wp.float32),
+            saturation_effort=wp.array([100.0], dtype=wp.float32),
+            velocity_limit=wp.array([10.0], dtype=wp.float32),
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32),
+            joint_qd=wp.array([5.0], dtype=wp.float32),  # half of v_max
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32),
+            joint_act=wp.array([0.0], dtype=wp.float32),
+            joint_f=wp.zeros(1, dtype=wp.float32),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        force = sim_control.joint_f.numpy()[0]
+        # PD force = 1000*(1-0) = 1000 (large positive)
+        # At v=5, v_max=10: max_torque = clamp(100*(1 - 5/10), 0, 200) = clamp(50, 0, 200) = 50
+        # min_torque = clamp(100*(-1 - 5/10), -200, 0) = clamp(-150, -200, 0) = -150
+        # Force clamped to 50
+        self.assertAlmostEqual(force, 50.0, places=3)
+
+    def test_dc_motor_at_velocity_limit(self):
+        """At v_max, no torque can be produced in direction of motion."""
+        indices = wp.array([0], dtype=wp.uint32)
+        actuator = ActuatorDCMotor(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([1000.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            max_force=wp.array([200.0], dtype=wp.float32),
+            saturation_effort=wp.array([100.0], dtype=wp.float32),
+            velocity_limit=wp.array([10.0], dtype=wp.float32),
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32),
+            joint_qd=wp.array([10.0], dtype=wp.float32),  # exactly at v_max
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32),
+            joint_act=wp.array([0.0], dtype=wp.float32),
+            joint_f=wp.zeros(1, dtype=wp.float32),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        force = sim_control.joint_f.numpy()[0]
+        # At v=v_max: max_torque = clamp(100*(1 - 10/10), 0, 200) = clamp(0, 0, 200) = 0
+        self.assertAlmostEqual(force, 0.0, places=3)
+
+    def test_dc_motor_negative_velocity_increases_positive_limit(self):
+        """Negative velocity allows more torque in the positive direction."""
+        indices = wp.array([0], dtype=wp.uint32)
+        actuator = ActuatorDCMotor(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([1000.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            max_force=wp.array([200.0], dtype=wp.float32),
+            saturation_effort=wp.array([100.0], dtype=wp.float32),
+            velocity_limit=wp.array([10.0], dtype=wp.float32),
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32),
+            joint_qd=wp.array([-5.0], dtype=wp.float32),  # moving backwards
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32),
+            joint_act=wp.array([0.0], dtype=wp.float32),
+            joint_f=wp.zeros(1, dtype=wp.float32),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        force = sim_control.joint_f.numpy()[0]
+        # At v=-5: max_torque = clamp(100*(1 - (-5)/10), 0, 200) = clamp(150, 0, 200) = 150
+        # PD force = 1000, clamped to 150
+        self.assertAlmostEqual(force, 150.0, places=3)
+
+
+class TestActuatorRemotizedPD(unittest.TestCase):
+    """Tests for ActuatorRemotizedPD."""
+
+    def setUp(self):
+        wp.init()
+
+    def _make_lookup(self):
+        """Create a simple lookup table: torque limit varies from 10 to 50 over angles -1 to 1."""
+        angles = wp.array([-1.0, 0.0, 1.0], dtype=wp.float32)
+        torques = wp.array([10.0, 30.0, 50.0], dtype=wp.float32)
+        return angles, torques
+
+    def test_remotized_pd_creation(self):
+        """Test that ActuatorRemotizedPD can be created with valid parameters."""
+        indices = wp.array([0, 1], dtype=wp.uint32)
+        angles, torques = self._make_lookup()
+
+        actuator = ActuatorRemotizedPD(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([100.0, 100.0], dtype=wp.float32),
+            kd=wp.array([10.0, 10.0], dtype=wp.float32),
+            delay=3,
+            lookup_angles=angles,
+            lookup_torques=torques,
+        )
+        self.assertIsInstance(actuator, ActuatorDelayedPD)
+        self.assertTrue(actuator.is_stateful())
+        self.assertEqual(actuator.lookup_size, 3)
+
+    def test_remotized_pd_resolve_arguments_requires_delay_and_lookup(self):
+        """Test that resolve_arguments raises errors for missing required args."""
+        with self.assertRaises(ValueError):
+            ActuatorRemotizedPD.resolve_arguments({"kp": 50.0})
+        with self.assertRaises(ValueError):
+            ActuatorRemotizedPD.resolve_arguments({"kp": 50.0, "delay": 3})
+
+    def test_remotized_pd_angle_dependent_clipping(self):
+        """Test that torque is clamped based on the lookup table at the current joint angle."""
+        delay = 2
+        indices = wp.array([0], dtype=wp.uint32)
+        # Lookup: at angle=0, max_torque=30
+        angles, torques = self._make_lookup()
+
+        actuator = ActuatorRemotizedPD(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([1000.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            delay=delay,
+            lookup_angles=angles,
+            lookup_torques=torques,
+        )
+
+        stateA = actuator.state()
+        stateB = actuator.state()
+
+        # Fill the delay buffer first (delay=2 steps to fill)
+        for step in range(delay + 1):
+            sim_state = MockSimState(
+                joint_q=wp.array([0.0], dtype=wp.float32),
+                joint_qd=wp.array([0.0], dtype=wp.float32),
+            )
+            sim_control = MockSimControl(
+                joint_target_pos=wp.array([1.0], dtype=wp.float32),
+                joint_target_vel=wp.array([0.0], dtype=wp.float32),
+                joint_act=wp.array([0.0], dtype=wp.float32),
+                joint_f=wp.zeros(1, dtype=wp.float32),
+            )
+            if step % 2 == 0:
+                current, next_s = stateA, stateB
+            else:
+                current, next_s = stateB, stateA
+            actuator.step(sim_state, sim_control, current, next_s, dt=0.01)
+
+        force = sim_control.joint_f.numpy()[0]
+        # PD force = 1000*(1-0) = 1000, but at angle=0.0 the lookup gives max_torque=30
+        # So force is clamped to 30
+        self.assertAlmostEqual(force, 30.0, places=3)
+
+    def test_remotized_pd_different_angles(self):
+        """Test that lookup interpolation works at different joint angles."""
+        delay = 2
+        indices = wp.array([0], dtype=wp.uint32)
+        angles, torques = self._make_lookup()
+
+        actuator = ActuatorRemotizedPD(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([1000.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            delay=delay,
+            lookup_angles=angles,
+            lookup_torques=torques,
+        )
+
+        for test_angle, expected_limit in [(-1.0, 10.0), (-0.5, 20.0), (0.5, 40.0), (1.0, 50.0)]:
+            stateA = actuator.state()
+            stateB = actuator.state()
+
+            for step in range(delay + 1):
+                sim_state = MockSimState(
+                    joint_q=wp.array([test_angle], dtype=wp.float32),
+                    joint_qd=wp.array([0.0], dtype=wp.float32),
+                )
+                sim_control = MockSimControl(
+                    joint_target_pos=wp.array([test_angle + 10.0], dtype=wp.float32),
+                    joint_target_vel=wp.array([0.0], dtype=wp.float32),
+                    joint_act=wp.array([0.0], dtype=wp.float32),
+                    joint_f=wp.zeros(1, dtype=wp.float32),
+                )
+                if step % 2 == 0:
+                    current, next_s = stateA, stateB
+                else:
+                    current, next_s = stateB, stateA
+                actuator.step(sim_state, sim_control, current, next_s, dt=0.01)
+
+            force = sim_control.joint_f.numpy()[0]
+            # PD force = 1000*10 = 10000, always clamped to lookup limit
+            self.assertAlmostEqual(
+                force, expected_limit, places=2, msg=f"At angle={test_angle}, expected limit={expected_limit}"
+            )
+
+    def test_remotized_pd_no_force_during_fill(self):
+        """Test that no force is applied while the delay buffer is filling."""
+        delay = 3
+        indices = wp.array([0], dtype=wp.uint32)
+        angles, torques = self._make_lookup()
+
+        actuator = ActuatorRemotizedPD(
+            input_indices=indices,
+            output_indices=indices,
+            kp=wp.array([100.0], dtype=wp.float32),
+            kd=wp.array([0.0], dtype=wp.float32),
+            delay=delay,
+            lookup_angles=angles,
+            lookup_torques=torques,
+        )
+
+        stateA = actuator.state()
+        stateB = actuator.state()
+
+        for step in range(delay):
+            sim_state = MockSimState(
+                joint_q=wp.array([0.0], dtype=wp.float32),
+                joint_qd=wp.array([0.0], dtype=wp.float32),
+            )
+            sim_control = MockSimControl(
+                joint_target_pos=wp.array([1.0], dtype=wp.float32),
+                joint_target_vel=wp.array([0.0], dtype=wp.float32),
+                joint_act=wp.array([0.0], dtype=wp.float32),
+                joint_f=wp.zeros(1, dtype=wp.float32),
+            )
+            if step % 2 == 0:
+                current, next_s = stateA, stateB
+            else:
+                current, next_s = stateB, stateA
+            actuator.step(sim_state, sim_control, current, next_s, dt=0.01)
+            force = sim_control.joint_f.numpy()[0]
+            self.assertEqual(force, 0.0, f"Step {step}: expected 0 force during fill phase")
+
+
 class MockAttribute:
     """Mock USD attribute for testing."""
 
@@ -493,6 +813,72 @@ class TestActuatorParser(unittest.TestCase):
 
         result = parse_actuator_prim(prim)
         self.assertIsNone(result)
+
+    def test_parse_dc_motor_actuator_prim(self):
+        """Test parsing a DC motor actuator prim with PD + saturation params."""
+        from newton_actuators import ActuatorDCMotor, parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:kd": MockAttribute(10.0, "newton:actuator:kd"),
+                "newton:actuator:maxForce": MockAttribute(200.0, "newton:actuator:maxForce"),
+                "newton:actuator:saturationEffort": MockAttribute(150.0, "newton:actuator:saturationEffort"),
+                "newton:actuator:velocityLimit": MockAttribute(10.0, "newton:actuator:velocityLimit"),
+            },
+            relationships={
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+        )
+
+        result = parse_actuator_prim(prim)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actuator_class, ActuatorDCMotor)
+        self.assertEqual(result.kwargs.get("kp"), 100.0)
+        self.assertEqual(result.kwargs.get("kd"), 10.0)
+        self.assertEqual(result.kwargs.get("max_force"), 200.0)
+        self.assertEqual(result.kwargs.get("saturation_effort"), 150.0)
+        self.assertEqual(result.kwargs.get("velocity_limit"), 10.0)
+
+    def test_parse_dc_motor_velocity_limit_zero_raises(self):
+        """Test that velocity_limit=0 raises ValueError during parsing."""
+        from newton_actuators import parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:saturationEffort": MockAttribute(150.0, "newton:actuator:saturationEffort"),
+                "newton:actuator:velocityLimit": MockAttribute(0.0, "newton:actuator:velocityLimit"),
+            },
+            relationships={
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+        )
+
+        with self.assertRaises(ValueError, msg="velocity_limit=0 should raise ValueError"):
+            parse_actuator_prim(prim)
+
+    def test_parse_dc_motor_velocity_limit_negative_raises(self):
+        """Test that negative velocity_limit raises ValueError during parsing."""
+        from newton_actuators import parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:saturationEffort": MockAttribute(150.0, "newton:actuator:saturationEffort"),
+                "newton:actuator:velocityLimit": MockAttribute(-5.0, "newton:actuator:velocityLimit"),
+            },
+            relationships={
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+        )
+
+        with self.assertRaises(ValueError, msg="negative velocity_limit should raise ValueError"):
+            parse_actuator_prim(prim)
 
 
 if __name__ == "__main__":
