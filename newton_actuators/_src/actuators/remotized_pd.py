@@ -48,7 +48,7 @@ class ActuatorRemotizedPD(ActuatorDelayedPD):
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
-        """Resolve arguments with defaults. Requires 'delay' and 'joint_parameter_lookup'.
+        """Resolve arguments with defaults. Requires 'delay', 'lookup_angles', and 'lookup_torques'.
 
         Args:
             args (dict): User-provided arguments.
@@ -61,13 +61,14 @@ class ActuatorRemotizedPD(ActuatorDelayedPD):
         """
         if "delay" not in args:
             raise ValueError("ActuatorRemotizedPD requires 'delay' argument")
-        if "joint_parameter_lookup" not in args:
-            raise ValueError("ActuatorRemotizedPD requires 'joint_parameter_lookup' argument")
+        if "lookup_angles" not in args or "lookup_torques" not in args:
+            raise ValueError("ActuatorRemotizedPD requires 'lookup_angles' and 'lookup_torques' arguments")
         return {
             "kp": args.get("kp", 0.0),
             "kd": args.get("kd", 0.0),
             "delay": args["delay"],
-            "joint_parameter_lookup": args["joint_parameter_lookup"],
+            "lookup_angles": args["lookup_angles"],
+            "lookup_torques": args["lookup_torques"],
             "constant_force": args.get("constant_force", 0.0),
         }
 
