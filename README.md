@@ -58,7 +58,7 @@ Stateful actuators use nested State classes:
 
 - `ActuatorPID.State` - Contains the integral term for PID control
 - `ActuatorDelayedPD.State` - Contains circular buffers for delayed targets
-- `ActuatorRemotizedPD` - Inherits `ActuatorDelayedPD.State` (same delay buffers)
+- `ActuatorRemotizedPD.State` - Inherits `ActuatorDelayedPD.State` (same delay buffers)
 
 ## Workflow
 
