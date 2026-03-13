@@ -67,7 +67,6 @@ class TestActuatorPD(unittest.TestCase):
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
             kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
-            gear=wp.array([1.0, 1.0, 1.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertIsNone(actuator.state())
@@ -85,7 +84,6 @@ class TestActuatorPD(unittest.TestCase):
             kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
             kd=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
             max_force=wp.array([1000.0, 1000.0, 1000.0], dtype=wp.float32),
-            gear=wp.array([1.0, 1.0, 1.0], dtype=wp.float32),
         )
 
         # Create mock state and control
@@ -130,7 +128,6 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([10.0, 10.0], dtype=wp.float32),
             delay=5,
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
@@ -148,7 +145,6 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([10.0, 10.0], dtype=wp.float32),
             delay=delay,
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
 
         state = actuator.state()
@@ -178,7 +174,6 @@ class TestActuatorDelayedPD(unittest.TestCase):
             kd=wp.array([0.0], dtype=wp.float32),
             delay=delay,
             max_force=wp.array([1000.0], dtype=wp.float32),
-            gear=wp.array([1.0], dtype=wp.float32),
         )
 
         # Create double-buffered states
@@ -262,7 +257,6 @@ class TestActuatorPID(unittest.TestCase):
             kd=wp.array([5.0, 5.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
             integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
@@ -280,7 +274,6 @@ class TestActuatorPID(unittest.TestCase):
             kd=wp.array([5.0, 5.0], dtype=wp.float32),
             max_force=wp.array([50.0, 50.0], dtype=wp.float32),
             integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-            gear=wp.array([1.0, 1.0], dtype=wp.float32),
         )
 
         state = actuator.state()
