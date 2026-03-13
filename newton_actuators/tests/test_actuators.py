@@ -814,6 +814,94 @@ class TestActuatorParser(unittest.TestCase):
         result = parse_actuator_prim(prim)
         self.assertIsNone(result)
 
+    def test_parse_dc_motor_actuator_prim(self):
+        """Test parsing a DC motor actuator prim with PD + saturation params."""
+        from newton_actuators import ActuatorDCMotor, parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:kd": MockAttribute(10.0, "newton:actuator:kd"),
+                "newton:actuator:maxForce": MockAttribute(200.0, "newton:actuator:maxForce"),
+                "newton:actuator:saturationEffort": MockAttribute(150.0, "newton:actuator:saturationEffort"),
+                "newton:actuator:velocityLimit": MockAttribute(10.0, "newton:actuator:velocityLimit"),
+            },
+            relationships={
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+        )
+
+        result = parse_actuator_prim(prim)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actuator_class, ActuatorDCMotor)
+        self.assertEqual(result.kwargs.get("kp"), 100.0)
+        self.assertEqual(result.kwargs.get("kd"), 10.0)
+        self.assertEqual(result.kwargs.get("max_force"), 200.0)
+        self.assertEqual(result.kwargs.get("saturation_effort"), 150.0)
+        self.assertEqual(result.kwargs.get("velocity_limit"), 10.0)
+
+    def test_parse_dc_motor_velocity_limit_zero_raises(self):
+        """Test that velocity_limit=0 raises ValueError during parsing."""
+        from newton_actuators import parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:saturationEffort": MockAttribute(150.0, "newton:actuator:saturationEffort"),
+                "newton:actuator:velocityLimit": MockAttribute(0.0, "newton:actuator:velocityLimit"),
+            },
+            relationships={
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+        )
+
+        with self.assertRaises(ValueError, msg="velocity_limit=0 should raise ValueError"):
+            parse_actuator_prim(prim)
+
+    def test_parse_dc_motor_velocity_limit_negative_raises(self):
+        """Test that negative velocity_limit raises ValueError during parsing."""
+        from newton_actuators import parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:saturationEffort": MockAttribute(150.0, "newton:actuator:saturationEffort"),
+                "newton:actuator:velocityLimit": MockAttribute(-5.0, "newton:actuator:velocityLimit"),
+            },
+            relationships={
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+        )
+
+        with self.assertRaises(ValueError, msg="negative velocity_limit should raise ValueError"):
+            parse_actuator_prim(prim)
+
+    def test_parse_dc_motor_only_saturation_effort_infers_schema(self):
+        """Test that presence of saturationEffort alone triggers DCMotorAPI schema."""
+        from newton_actuators import ActuatorDCMotor, parse_actuator_prim
+
+        prim = MockPrim(
+            type_name="Actuator",
+            attributes={
+                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
+                "newton:actuator:saturationEffort": MockAttribute(80.0, "newton:actuator:saturationEffort"),
+            },
+            relationships={
+                "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
+            },
+        )
+
+        result = parse_actuator_prim(prim)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actuator_class, ActuatorDCMotor)
+        self.assertEqual(result.kwargs.get("saturation_effort"), 80.0)
+        self.assertIsNone(result.kwargs.get("velocity_limit"))
+
 
 if __name__ == "__main__":
     unittest.main()

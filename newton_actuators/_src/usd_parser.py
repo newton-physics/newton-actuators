@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .actuators import ActuatorDelayedPD, ActuatorPD, ActuatorPID
+from .actuators import ActuatorDCMotor, ActuatorDelayedPD, ActuatorPD, ActuatorPID
 
 
 @dataclass
@@ -50,6 +50,10 @@ API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
     },
     "DelayAPI": {
         "delay": "delay",
+    },
+    "DCMotorAPI": {
+        "saturationEffort": "saturation_effort",
+        "velocityLimit": "velocity_limit",
     },
 }
 
@@ -91,6 +95,8 @@ def infer_schemas_from_prim(prim) -> list[str]:
         schemas.append("PDControllerAPI")
     if "delay" in attr_names:
         schemas.append("DelayAPI")
+    if "saturationEffort" in attr_names or "velocityLimit" in attr_names:
+        schemas.append("DCMotorAPI")
 
     return schemas
 
@@ -100,8 +106,11 @@ def determine_actuator_class(schemas: list[str]) -> type:
     has_delay = "DelayAPI" in schemas
     has_pid = "PIDControllerAPI" in schemas
     has_pd = "PDControllerAPI" in schemas
+    has_dc_motor = "DCMotorAPI" in schemas
 
-    if has_delay and has_pd:
+    if has_dc_motor and has_pd:
+        return ActuatorDCMotor
+    elif has_delay and has_pd:
         return ActuatorDelayedPD
     elif has_pid:
         return ActuatorPID
@@ -109,6 +118,17 @@ def determine_actuator_class(schemas: list[str]) -> type:
         return ActuatorPD
     else:
         return ActuatorPD
+
+
+def validate_kwargs(schemas: list[str], kwargs: dict[str, Any]) -> None:
+    """Validate extracted kwargs. Raises ValueError on invalid values."""
+    if "DCMotorAPI" in schemas:
+        vel_lim = kwargs.get("velocity_limit")
+        if vel_lim is not None and vel_lim <= 0.0:
+            raise ValueError(
+                f"DCMotorAPI requires velocity_limit > 0 (division by velocity_limit "
+                f"in saturation computation); got {vel_lim}"
+            )
 
 
 def extract_kwargs_from_prim(prim, schemas: list[str]) -> dict[str, Any]:
@@ -122,6 +142,7 @@ def extract_kwargs_from_prim(prim, schemas: list[str]) -> dict[str, Any]:
             value = get_attribute(prim, f"newton:actuator:{usd_name}")
             if value is not None:
                 kwargs[kwarg_name] = value
+    validate_kwargs(schemas, kwargs)
     return kwargs
 
 
