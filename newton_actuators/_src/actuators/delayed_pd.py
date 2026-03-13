@@ -28,7 +28,7 @@ from .base import Actuator
 class ActuatorDelayedPD(Actuator):
     """PD controller with input delay.
 
-    Control law: τ = clamp(G·[constant + act_delayed + Kp·(target_pos_delayed - G·q) + Kd·(target_vel_delayed - G·v)], ±max_force)
+    Control law: τ = clamp(constant + act_delayed + Kp·(target_pos_delayed - q) + Kd·(target_vel_delayed - v), ±max_force)
 
     Stateful: delays targets by N timesteps using circular buffer to model actuator lag.
     """
@@ -68,7 +68,6 @@ class ActuatorDelayedPD(Actuator):
             "kd": args.get("kd", 0.0),
             "delay": args["delay"],
             "max_force": args.get("max_force", math.inf),
-            "gear": args.get("gear", 1.0),
             "constant_force": args.get("constant_force", 0.0),
         }
 
@@ -80,7 +79,6 @@ class ActuatorDelayedPD(Actuator):
         kd: wp.array,
         delay: int,
         max_force: wp.array,
-        gear: wp.array,
         constant_force: wp.array = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
@@ -98,7 +96,6 @@ class ActuatorDelayedPD(Actuator):
             kd (wp.array): Derivative gains. Shape (N,).
             delay (int): Number of timesteps to delay inputs.
             max_force (wp.array): Force limits. Shape (N,).
-            gear (wp.array): Gear ratios. Shape (N,).
             constant_force (wp.array, optional): Constant offsets. Shape (N,). None to skip.
             state_pos_attr (str): Attribute on sim_state for positions.
             state_vel_attr (str): Attribute on sim_state for velocities.
@@ -109,7 +106,7 @@ class ActuatorDelayedPD(Actuator):
         """
         super().__init__(input_indices, output_indices, control_output_attr)
 
-        for name, arr in [("kp", kp), ("kd", kd), ("max_force", max_force), ("gear", gear)]:
+        for name, arr in [("kp", kp), ("kd", kd), ("max_force", max_force)]:
             if len(arr) != self.num_actuators:
                 raise ValueError(f"{name} length ({len(arr)}) must match num_actuators ({self.num_actuators})")
 
@@ -121,7 +118,6 @@ class ActuatorDelayedPD(Actuator):
         self.kp = kp
         self.kd = kd
         self.max_force = max_force
-        self.gear = gear
         self.constant_force = constant_force
         self.delay = delay
 
@@ -167,7 +163,6 @@ class ActuatorDelayedPD(Actuator):
                 self.kp,
                 self.kd,
                 self.max_force,
-                self.gear,
                 self.constant_force,
             ],
             outputs=[controller_output],
@@ -188,13 +183,17 @@ class ActuatorDelayedPD(Actuator):
         copy_idx = current_state.write_idx
         write_idx = (current_state.write_idx + 1) % self.delay
 
+        control_input = None
+        if self.control_input_attr is not None:
+            control_input = getattr(sim_control, self.control_input_attr, None)
+
         wp.launch(
             kernel=delay_buffer_state_kernel,
             dim=self.num_actuators,
             inputs=[
                 getattr(sim_control, self.control_target_pos_attr),
                 getattr(sim_control, self.control_target_vel_attr),
-                getattr(sim_control, self.control_input_attr),
+                control_input,
                 self.input_indices,
                 copy_idx,
                 write_idx,

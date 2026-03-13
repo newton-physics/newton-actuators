@@ -38,7 +38,6 @@ API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
         "kp": "kp",
         "kd": "kd",
         "maxForce": "max_force",
-        "gear": "gear",
         "constForce": "constant_force",
     },
     "PIDControllerAPI": {
@@ -47,7 +46,6 @@ API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
         "kd": "kd",
         "maxForce": "max_force",
         "integralMax": "integral_max",
-        "gear": "gear",
         "constForce": "constant_force",
     },
     "DelayAPI": {
