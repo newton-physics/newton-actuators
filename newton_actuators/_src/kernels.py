@@ -34,7 +34,10 @@ def _interp_1d(
         return ys[n - 1]
     for k in range(n - 1):
         if xs[k + 1] >= x:
-            t = (x - xs[k]) / (xs[k + 1] - xs[k])
+            dx = xs[k + 1] - xs[k]
+            if dx == 0.0:
+                return ys[k]
+            t = (x - xs[k]) / dx
             return ys[k] + t * (ys[k + 1] - ys[k])
     return ys[n - 1]
 

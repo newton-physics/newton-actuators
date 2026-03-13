@@ -39,7 +39,7 @@ pip install -e .
 - **ActuatorPD**: `τ = clamp(constant + act + Kp·(target_pos - q) + Kd·(target_vel - v), ±max_force)`
 - **ActuatorPID**: `τ = clamp(constant + act + Kp·(target_pos - q) + Ki·∫e·dt + Kd·(target_vel - v), ±max_force)`
 - **ActuatorDelayedPD**: Same as PD but with delayed targets (circular buffer)
-- **ActuatorDCMotor**: Same PD force computation, but torque limits depend on joint velocity via the motor torque-speed curve: `τ_max(v) = clamp(τ_sat·(1 - v/v_max), 0, effort_limit)`
+- **ActuatorDCMotor**: Same PD force computation, but torque is clamped to velocity-dependent bounds from the motor torque-speed curve: `τ_max(v) = clamp(τ_sat·(1 - v/v_max), 0, effort_limit)`, `τ_min(v) = clamp(τ_sat·(-1 - v/v_max), -effort_limit, 0)`, `τ = clamp(τ, τ_min(v), τ_max(v))`
 - **ActuatorRemotizedPD**: Same as DelayedPD, but torque limits are interpolated from an angle-dependent lookup table: `τ_limit = interp(q, lookup_table)`
 
 ### Base Class Methods
