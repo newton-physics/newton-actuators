@@ -31,12 +31,16 @@ pip install -e .
 | `ActuatorPD` | Stateless PD controller | No | No |
 | `ActuatorPID` | PID controller with integral term | Yes | No |
 | `ActuatorDelayedPD` | PD controller with input delay | Yes | No |
+| `ActuatorDCMotor` | PD with DC motor velocity-dependent saturation | No | No |
+| `ActuatorRemotizedPD` | Delayed PD with angle-dependent torque limits | Yes | No |
 
 #### Control Laws
 
-- **ActuatorPD**: `τ = clamp(G·[constant + act + Kp·(target_pos - G·q) + Kd·(target_vel - G·v)], ±max_force)`
-- **ActuatorPID**: `τ = clamp(G·[constant + act + Kp·(target_pos - G·q) + Ki·∫e·dt + Kd·(target_vel - G·v)], ±max_force)`
+- **ActuatorPD**: `τ = clamp(constant + act + Kp·(target_pos - q) + Kd·(target_vel - v), ±max_force)`
+- **ActuatorPID**: `τ = clamp(constant + act + Kp·(target_pos - q) + Ki·∫e·dt + Kd·(target_vel - v), ±max_force)`
 - **ActuatorDelayedPD**: Same as PD but with delayed targets (circular buffer)
+- **ActuatorDCMotor**: Same PD force computation, but torque limits depend on joint velocity via the motor torque-speed curve: `τ_max(v) = clamp(τ_sat·(1 - v/v_max), 0, effort_limit)`
+- **ActuatorRemotizedPD**: Same as DelayedPD, but torque limits are interpolated from an angle-dependent lookup table: `τ_limit = interp(q, lookup_table)`
 
 ### Base Class Methods
 
@@ -54,6 +58,7 @@ Stateful actuators use nested State classes:
 
 - `ActuatorPID.State` - Contains the integral term for PID control
 - `ActuatorDelayedPD.State` - Contains circular buffers for delayed targets
+- `ActuatorRemotizedPD` - Inherits `ActuatorDelayedPD.State` (same delay buffers)
 
 ## Workflow
 
@@ -79,8 +84,6 @@ pd_actuator = ActuatorPD(
     kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
     kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
     max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
-    gear=wp.array([1.0, 1.0, 1.0], dtype=wp.float32),
-    constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
 )
 
 # In simulation loop - stateless actuators don't need state management
@@ -102,8 +105,6 @@ pid_actuator = ActuatorPID(
     kd=wp.array([5.0, 5.0], dtype=wp.float32),
     max_force=wp.array([50.0, 50.0], dtype=wp.float32),
     integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-    gear=wp.array([1.0, 1.0], dtype=wp.float32),
-    constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
 )
 
 # Check if actuator needs state management
@@ -117,6 +118,27 @@ current_state, next_state = state_a, state_b
 for step in range(num_steps):
     pid_actuator.step(sim_state, sim_control, current_state, next_state, dt=0.01)
     current_state, next_state = next_state, current_state  # Swap buffers
+```
+
+### DC Motor Actuator
+
+```python
+import warp as wp
+from newton_actuators import ActuatorDCMotor
+
+indices = wp.array([0, 1], dtype=wp.uint32)
+dc_motor = ActuatorDCMotor(
+    input_indices=indices,
+    output_indices=indices,
+    kp=wp.array([200.0, 200.0], dtype=wp.float32),
+    kd=wp.array([20.0, 20.0], dtype=wp.float32),
+    max_force=wp.array([50.0, 50.0], dtype=wp.float32),
+    saturation_effort=wp.array([80.0, 80.0], dtype=wp.float32),
+    velocity_limit=wp.array([10.0, 10.0], dtype=wp.float32),
+)
+
+# Stateless - no state management needed
+dc_motor.step(sim_state, sim_control, None, None, dt=0.01)
 ```
 
 ## USD Parsing

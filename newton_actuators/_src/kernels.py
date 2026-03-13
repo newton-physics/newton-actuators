@@ -18,6 +18,27 @@
 import warp as wp
 
 
+@wp.func
+def _interp_1d(
+    x: float,
+    xs: wp.array(dtype=float),
+    ys: wp.array(dtype=float),
+    n: int,
+) -> float:
+    """Linearly interpolate (x -> y) from sorted sample arrays, clamping at boundaries."""
+    if n <= 0:
+        return 0.0
+    if x <= xs[0]:
+        return ys[0]
+    if x >= xs[n - 1]:
+        return ys[n - 1]
+    for k in range(n - 1):
+        if xs[k + 1] >= x:
+            t = (x - xs[k]) / (xs[k + 1] - xs[k])
+            return ys[k] + t * (ys[k + 1] - ys[k])
+    return ys[n - 1]
+
+
 @wp.kernel
 def pd_controller_kernel(
     current_pos: wp.array(dtype=float),
@@ -32,9 +53,26 @@ def pd_controller_kernel(
     kd: wp.array(dtype=float),
     max_force: wp.array(dtype=float),
     constant_force: wp.array(dtype=float),
+    # Optional DC motor velocity-dependent saturation (pass None to skip):
+    saturation_effort: wp.array(dtype=float),
+    velocity_limit: wp.array(dtype=float),
+    # Optional angle-dependent torque lookup (pass None/0 to skip):
+    lookup_angles: wp.array(dtype=float),
+    lookup_torques: wp.array(dtype=float),
+    lookup_size: int,
     output: wp.array(dtype=float),
 ):
-    """PD control: f = clamp(constant + act + kp*(target_pos - q) + kd*(target_vel - v), ±max_force). Adds to output."""
+    """Unified PD controller with optional DC motor saturation and angle-dependent limits.
+
+    Force: f = constant + act + kp*(target_pos - q) + kd*(target_vel - v)
+
+    Clipping (in priority order):
+        - DC motor:  velocity-dependent τ_min/τ_max from saturation_effort and velocity_limit
+        - Lookup:    angle-dependent ±limit interpolated from lookup table
+        - Box:       ±max_force (fallback)
+
+    Result is added to output.
+    """
     i = wp.tid()
     state_idx = state_indices[i]
     target_idx = target_indices[i]
@@ -52,7 +90,20 @@ def pd_controller_kernel(
         act = control_input[target_idx]
 
     force = const_f + act + kp[i] * position_error + kd[i] * velocity_error
-    force = wp.clamp(force, -max_force[i], max_force[i])
+
+    if saturation_effort:
+        vel = current_vel[state_idx]
+        sat = saturation_effort[i]
+        vel_lim = velocity_limit[i]
+        max_f = max_force[i]
+        max_torque = wp.clamp(sat * (1.0 - vel / vel_lim), 0.0, max_f)
+        min_torque = wp.clamp(sat * (-1.0 - vel / vel_lim), -max_f, 0.0)
+        force = wp.clamp(force, min_torque, max_torque)
+    elif lookup_size > 0:
+        torque_limit = _interp_1d(current_pos[state_idx], lookup_angles, lookup_torques, lookup_size)
+        force = wp.clamp(force, -torque_limit, torque_limit)
+    else:
+        force = wp.clamp(force, -max_force[i], max_force[i])
 
     output[out_idx] = output[out_idx] + force
 

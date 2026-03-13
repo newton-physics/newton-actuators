@@ -17,9 +17,11 @@
 
 from ._src.actuators import (
     Actuator,
+    ActuatorDCMotor,
     ActuatorDelayedPD,
     ActuatorPD,
     ActuatorPID,
+    ActuatorRemotizedPD,
 )
 from ._src.usd_parser import (
     ParsedActuator,
@@ -30,9 +32,11 @@ from ._version import __version__
 __all__ = [
     "__version__",
     "Actuator",
+    "ActuatorDCMotor",
     "ActuatorDelayedPD",
     "ActuatorPD",
     "ActuatorPID",
+    "ActuatorRemotizedPD",
     "ParsedActuator",
     "parse_actuator_prim",
 ]

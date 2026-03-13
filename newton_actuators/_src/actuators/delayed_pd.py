@@ -164,6 +164,11 @@ class ActuatorDelayedPD(Actuator):
                 self.kd,
                 self.max_force,
                 self.constant_force,
+                None,  # saturation_effort (DC motor)
+                None,  # velocity_limit (DC motor)
+                None,  # lookup_angles (remotized)
+                None,  # lookup_torques (remotized)
+                0,  # lookup_size (remotized)
             ],
             outputs=[controller_output],
         )
