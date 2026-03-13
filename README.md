@@ -84,6 +84,7 @@ pd_actuator = ActuatorPD(
     kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
     kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
     max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
+    constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
 )
 
 # In simulation loop - stateless actuators don't need state management
@@ -105,6 +106,7 @@ pid_actuator = ActuatorPID(
     kd=wp.array([5.0, 5.0], dtype=wp.float32),
     max_force=wp.array([50.0, 50.0], dtype=wp.float32),
     integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
+    constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
 )
 
 # Check if actuator needs state management
