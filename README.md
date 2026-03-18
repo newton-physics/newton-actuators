@@ -52,6 +52,7 @@ All actuators inherit from `Actuator` and provide these methods:
 
 - `resolve_arguments(args) -> dict`: (classmethod) Resolve user-provided arguments with defaults
 - `is_stateful() -> bool`: Returns True if the actuator maintains internal state
+- `is_graphable() -> bool`: Returns True if `step()` can be captured in a CUDA graph (False for torch-based NN actuators)
 - `has_transmission() -> bool`: Returns True if the actuator has a transmission phase
 - `state() -> State | None`: Returns a new state instance (None for stateless actuators)
 - `step(sim_state, sim_control, current_state, next_state, dt)`: Execute one control step
