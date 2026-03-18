@@ -112,6 +112,20 @@ def pd_controller_kernel(
 
 
 @wp.kernel
+def nn_output_kernel(
+    nn_torques: wp.array(dtype=float),
+    max_force: wp.array(dtype=float),
+    output_indices: wp.array(dtype=wp.uint32),
+    output: wp.array(dtype=float),
+):
+    """Clamp neural-network output torques to ±max_force and add to controller output."""
+    i = wp.tid()
+    out_idx = output_indices[i]
+    force = wp.clamp(nn_torques[i], -max_force[i], max_force[i])
+    output[out_idx] = output[out_idx] + force
+
+
+@wp.kernel
 def pid_controller_kernel(
     current_pos: wp.array(dtype=float),
     current_vel: wp.array(dtype=float),

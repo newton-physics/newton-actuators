@@ -30,6 +30,13 @@ from newton_actuators import (
     ActuatorRemotizedPD,
 )
 
+try:
+    import torch
+
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+
 
 @dataclass
 class MockSimState:
@@ -73,6 +80,7 @@ class TestActuatorPD(unittest.TestCase):
         self.assertIsInstance(actuator, Actuator)
         self.assertIsNone(actuator.state())
         self.assertFalse(actuator.is_stateful())
+        self.assertTrue(actuator.is_graphable())
 
     def test_pd_actuator_step(self):
         """Test that ActuatorPD.step() computes correct forces."""
@@ -133,6 +141,7 @@ class TestActuatorDelayedPD(unittest.TestCase):
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
+        self.assertTrue(actuator.is_graphable())
 
     def test_delayed_pd_state(self):
         """Test that ActuatorDelayedPD.state() returns properly initialized state."""
@@ -262,6 +271,7 @@ class TestActuatorPID(unittest.TestCase):
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
+        self.assertTrue(actuator.is_graphable())
 
     def test_pid_actuator_state(self):
         """Test that ActuatorPID.state() returns properly initialized state."""
@@ -306,6 +316,7 @@ class TestActuatorDCMotor(unittest.TestCase):
         self.assertIsInstance(actuator, Actuator)
         self.assertFalse(actuator.is_stateful())
         self.assertIsNone(actuator.state())
+        self.assertTrue(actuator.is_graphable())
 
     def test_dc_motor_resolve_arguments_requires_velocity_limit(self):
         """Test that resolve_arguments raises error if velocity_limit not provided."""
@@ -469,6 +480,7 @@ class TestActuatorRemotizedPD(unittest.TestCase):
         )
         self.assertIsInstance(actuator, ActuatorDelayedPD)
         self.assertTrue(actuator.is_stateful())
+        self.assertTrue(actuator.is_graphable())
         self.assertEqual(actuator.lookup_size, 3)
 
     def test_remotized_pd_resolve_arguments_requires_delay_and_lookup(self):
@@ -879,6 +891,433 @@ class TestActuatorParser(unittest.TestCase):
 
         with self.assertRaises(ValueError, msg="negative velocity_limit should raise ValueError"):
             parse_actuator_prim(prim)
+
+
+@unittest.skipUnless(_HAS_TORCH, "torch not installed")
+class TestActuatorNetMLP(unittest.TestCase):
+    """Tests for ActuatorNetMLP."""
+
+    def setUp(self):
+        wp.init()
+        import torch
+
+        self.torch = torch
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.wp_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+    def _make_mlp(self, input_dim, hidden=32):
+        """Create a simple MLP: input_dim -> hidden -> 1."""
+        return self.torch.nn.Sequential(
+            self.torch.nn.Linear(input_dim, hidden),
+            self.torch.nn.ELU(),
+            self.torch.nn.Linear(hidden, 1),
+        )
+
+    def test_mlp_creation(self):
+        """Test that ActuatorNetMLP can be created with valid parameters."""
+        from newton_actuators import ActuatorNetMLP
+
+        indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_mlp(input_dim=2)
+
+        actuator = ActuatorNetMLP(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device),
+        )
+        self.assertIsInstance(actuator, Actuator)
+        self.assertFalse(actuator.is_stateful())
+        self.assertFalse(actuator.is_graphable())
+        self.assertEqual(actuator.history_length, 1)
+
+    def test_mlp_internal_state_shape(self):
+        """Test that internal history buffers have the correct shape."""
+        from newton_actuators import ActuatorNetMLP
+
+        indices = wp.array([0, 1, 2], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_mlp(input_dim=6)  # 3 timesteps * 2 (pos+vel)
+
+        actuator = ActuatorNetMLP(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32, device=self.wp_device),
+            input_idx=[0, 1, 2],
+        )
+
+        self.assertEqual(actuator.pos_error_history.shape, (3, 3))
+        self.assertEqual(actuator.vel_history.shape, (3, 3))
+
+    def test_mlp_step_runs(self):
+        """Test that step() executes without errors and produces output."""
+        from newton_actuators import ActuatorNetMLP
+
+        num_dofs = 2
+        indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_mlp(input_dim=2)
+
+        actuator = ActuatorNetMLP(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device),
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0, 0.0], dtype=wp.float32, device=self.wp_device),
+            joint_qd=wp.array([0.0, 0.0], dtype=wp.float32, device=self.wp_device),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0, 2.0], dtype=wp.float32, device=self.wp_device),
+            joint_target_vel=wp.array([0.0, 0.0], dtype=wp.float32, device=self.wp_device),
+            joint_act=wp.array([0.0, 0.0], dtype=wp.float32, device=self.wp_device),
+            joint_f=wp.zeros(num_dofs, dtype=wp.float32, device=self.wp_device),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        forces = sim_control.joint_f.numpy()
+        # Network has random weights so we just check it produced some output
+        self.assertEqual(forces.shape, (2,))
+
+    def test_mlp_clamping(self):
+        """Test that output is clamped to max_force."""
+        from newton_actuators import ActuatorNetMLP
+
+        num_dofs = 1
+        indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
+
+        # Create a network with large constant output by setting bias high
+        network = self.torch.nn.Sequential(self.torch.nn.Linear(2, 1, bias=True))
+        with self.torch.no_grad():
+            network[0].weight.fill_(0.0)
+            network[0].bias.fill_(999.0)
+
+        max_force_val = 10.0
+        actuator = ActuatorNetMLP(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device),
+            torque_scale=1.0,
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_qd=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32, device=self.wp_device),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_f=wp.zeros(num_dofs, dtype=wp.float32, device=self.wp_device),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        force = sim_control.joint_f.numpy()[0]
+        self.assertAlmostEqual(force, max_force_val, places=3)
+
+    def test_mlp_torque_scale(self):
+        """Test that torque_scale is applied to network output."""
+        from newton_actuators import ActuatorNetMLP
+
+        indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
+
+        # Network that always outputs 5.0
+        network = self.torch.nn.Sequential(self.torch.nn.Linear(2, 1, bias=True))
+        with self.torch.no_grad():
+            network[0].weight.fill_(0.0)
+            network[0].bias.fill_(5.0)
+
+        actuator = ActuatorNetMLP(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([1000.0], dtype=wp.float32, device=self.wp_device),
+            torque_scale=3.0,
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_qd=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_f=wp.zeros(1, dtype=wp.float32, device=self.wp_device),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        force = sim_control.joint_f.numpy()[0]
+        self.assertAlmostEqual(force, 15.0, places=3)
+
+    def test_mlp_history_persistence(self):
+        """Test that internal history buffers accumulate values across steps."""
+        from newton_actuators import ActuatorNetMLP
+
+        indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_mlp(input_dim=4)  # 2 timesteps * 2
+
+        actuator = ActuatorNetMLP(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([1000.0], dtype=wp.float32, device=self.wp_device),
+            input_idx=[0, 1],
+        )
+
+        for step in range(3):
+            sim_state = MockSimState(
+                joint_q=wp.array([float(step)], dtype=wp.float32, device=self.wp_device),
+                joint_qd=wp.array([float(step) * 0.1], dtype=wp.float32, device=self.wp_device),
+            )
+            sim_control = MockSimControl(
+                joint_target_pos=wp.array([float(step + 1)], dtype=wp.float32, device=self.wp_device),
+                joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+                joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+                joint_f=wp.zeros(1, dtype=wp.float32, device=self.wp_device),
+            )
+            actuator.step(sim_state, sim_control, None, None)
+
+        # After 3 steps, the internal history should have non-zero values
+        self.assertFalse(self.torch.all(actuator.pos_error_history == 0.0).item())
+        self.assertFalse(self.torch.all(actuator.vel_history == 0.0).item())
+
+    def test_mlp_invalid_input_order(self):
+        """Test that an invalid input_order raises ValueError during step."""
+        from newton_actuators import ActuatorNetMLP
+
+        indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_mlp(input_dim=2)
+
+        actuator = ActuatorNetMLP(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([50.0], dtype=wp.float32, device=self.wp_device),
+            input_order="invalid",
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_qd=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32, device=self.wp_device),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_f=wp.zeros(1, dtype=wp.float32, device=self.wp_device),
+        )
+
+        with self.assertRaises(ValueError):
+            actuator.step(sim_state, sim_control, None, None)
+
+
+if _HAS_TORCH:
+
+    class _SimpleLSTMNet(torch.nn.Module):
+        """Test LSTM network: LSTM encoder + Linear decoder."""
+
+        def __init__(self, input_size=2, hidden_size=8, output_size=1, num_layers=1):
+            super().__init__()
+            self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+            self.decoder = torch.nn.Linear(hidden_size, output_size)
+
+        def forward(self, x, hc):
+            lstm_out, (h_new, c_new) = self.lstm(x, hc)
+            output = self.decoder(lstm_out[:, -1, :])
+            return output, (h_new, c_new)
+
+
+@unittest.skipUnless(_HAS_TORCH, "torch not installed")
+class TestActuatorNetLSTM(unittest.TestCase):
+    """Tests for ActuatorNetLSTM."""
+
+    def setUp(self):
+        wp.init()
+        import torch
+
+        self.torch = torch
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.wp_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+    def _make_lstm(self, hidden_size=8, num_layers=1):
+        return _SimpleLSTMNet(input_size=2, hidden_size=hidden_size, num_layers=num_layers)
+
+    def test_lstm_creation(self):
+        """Test that ActuatorNetLSTM can be created with valid parameters."""
+        from newton_actuators import ActuatorNetLSTM
+
+        indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_lstm()
+
+        actuator = ActuatorNetLSTM(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device),
+        )
+        self.assertIsInstance(actuator, Actuator)
+        self.assertFalse(actuator.is_stateful())
+        self.assertFalse(actuator.is_graphable())
+
+    def test_lstm_internal_state_shape(self):
+        """Test that internal hidden and cell tensors have the correct shape."""
+        from newton_actuators import ActuatorNetLSTM
+
+        hidden_size = 16
+        num_layers = 2
+        indices = wp.array([0, 1, 2], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_lstm(hidden_size=hidden_size, num_layers=num_layers)
+
+        actuator = ActuatorNetLSTM(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32, device=self.wp_device),
+        )
+
+        self.assertEqual(actuator.hidden.shape, (num_layers, 3, hidden_size))
+        self.assertEqual(actuator.cell.shape, (num_layers, 3, hidden_size))
+
+    def test_lstm_step_runs(self):
+        """Test that step() executes without errors and produces output."""
+        from newton_actuators import ActuatorNetLSTM
+
+        num_dofs = 2
+        indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_lstm()
+
+        actuator = ActuatorNetLSTM(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device),
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0, 0.0], dtype=wp.float32, device=self.wp_device),
+            joint_qd=wp.array([1.0, -1.0], dtype=wp.float32, device=self.wp_device),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0, 2.0], dtype=wp.float32, device=self.wp_device),
+            joint_target_vel=wp.array([0.0, 0.0], dtype=wp.float32, device=self.wp_device),
+            joint_act=wp.array([0.0, 0.0], dtype=wp.float32, device=self.wp_device),
+            joint_f=wp.zeros(num_dofs, dtype=wp.float32, device=self.wp_device),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        forces = sim_control.joint_f.numpy()
+        self.assertEqual(forces.shape, (2,))
+
+    def test_lstm_clamping(self):
+        """Test that output is clamped to max_force."""
+        from newton_actuators import ActuatorNetLSTM
+
+        indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
+
+        # Create network with decoder bias set very high
+        network = self._make_lstm(hidden_size=4)
+        with self.torch.no_grad():
+            network.decoder.weight.fill_(0.0)
+            network.decoder.bias.fill_(500.0)
+
+        max_force_val = 10.0
+        actuator = ActuatorNetLSTM(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device),
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_qd=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32, device=self.wp_device),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_f=wp.zeros(1, dtype=wp.float32, device=self.wp_device),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+        force = sim_control.joint_f.numpy()[0]
+        self.assertAlmostEqual(force, max_force_val, places=3)
+
+    def test_lstm_state_evolves(self):
+        """Test that internal hidden/cell state changes after a step."""
+        from newton_actuators import ActuatorNetLSTM
+
+        indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_lstm()
+
+        actuator = ActuatorNetLSTM(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([1000.0], dtype=wp.float32, device=self.wp_device),
+        )
+
+        # Verify initial state is zero
+        self.assertTrue(self.torch.all(actuator.hidden == 0.0).item())
+        self.assertTrue(self.torch.all(actuator.cell == 0.0).item())
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_qd=wp.array([1.0], dtype=wp.float32, device=self.wp_device),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32, device=self.wp_device),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            joint_f=wp.zeros(1, dtype=wp.float32, device=self.wp_device),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+
+        # After one step with non-zero input, hidden/cell should be non-zero
+        self.assertFalse(self.torch.all(actuator.hidden == 0.0).item())
+        self.assertFalse(self.torch.all(actuator.cell == 0.0).item())
+
+    def test_lstm_multi_step_different_outputs(self):
+        """Test that LSTM produces different outputs over multiple steps (temporal memory)."""
+        from newton_actuators import ActuatorNetLSTM
+
+        indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
+        network = self._make_lstm()
+
+        actuator = ActuatorNetLSTM(
+            input_indices=indices,
+            output_indices=indices,
+            network=network,
+            max_force=wp.array([1000.0], dtype=wp.float32, device=self.wp_device),
+        )
+
+        forces = []
+
+        for _step in range(5):
+            sim_state = MockSimState(
+                joint_q=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+                joint_qd=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+            )
+            sim_control = MockSimControl(
+                joint_target_pos=wp.array([1.0], dtype=wp.float32, device=self.wp_device),
+                joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+                joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
+                joint_f=wp.zeros(1, dtype=wp.float32, device=self.wp_device),
+            )
+
+            actuator.step(sim_state, sim_control, None, None)
+            forces.append(sim_control.joint_f.numpy()[0])
+
+        # With the same constant input, LSTM hidden state evolves so outputs differ
+        # (at least not all identical due to recurrent dynamics)
+        self.assertFalse(
+            all(abs(f - forces[0]) < 1e-6 for f in forces[1:]),
+            "LSTM should produce varying outputs across steps due to hidden state",
+        )
 
 
 if __name__ == "__main__":

@@ -85,6 +85,10 @@ class Actuator:
         """
         return False
 
+    def is_graphable(self) -> bool:
+        """Return True if this actuator's step() can be captured in a CUDA graph."""
+        return True
+
     def has_transmission(self) -> bool:
         """Return True if this actuator has a transmission phase."""
         return False

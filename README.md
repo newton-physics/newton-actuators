@@ -33,6 +33,8 @@ pip install -e .
 | `ActuatorDelayedPD` | PD controller with input delay | Yes | No |
 | `ActuatorDCMotor` | PD with DC motor velocity-dependent saturation | No | No |
 | `ActuatorRemotizedPD` | Delayed PD with angle-dependent torque limits | Yes | No |
+| `ActuatorNetMLP` | MLP network actuator with position/velocity history | No | No |
+| `ActuatorNetLSTM` | LSTM network actuator with recurrent hidden state | No | No |
 
 #### Control Laws
 
@@ -41,6 +43,8 @@ pip install -e .
 - **ActuatorDelayedPD**: Same as PD but with delayed targets (circular buffer)
 - **ActuatorDCMotor**: Same PD force computation, but torque is clamped to velocity-dependent bounds from the motor torque-speed curve: `τ_max(v) = clamp(τ_sat·(1 - v/v_max), 0, effort_limit)`, `τ_min(v) = clamp(τ_sat·(-1 - v/v_max), -effort_limit, 0)`, `τ = clamp(τ, τ_min(v), τ_max(v))`
 - **ActuatorRemotizedPD**: Same as DelayedPD, but torque limits are interpolated from an angle-dependent lookup table: `τ_limit = interp(q, lookup_table)`
+- **ActuatorNetMLP**: `τ = clamp(network(cat(pos_error_history * pos_scale, vel_history * vel_scale)) * torque_scale, ±max_force)` — history is maintained internally
+- **ActuatorNetLSTM**: `τ = clamp(network(input, (h, c)), ±max_force)` — hidden and cell state maintained internally
 
 ### Base Class Methods
 
@@ -59,6 +63,8 @@ Stateful actuators use nested State classes:
 - `ActuatorPID.State` - Contains the integral term for PID control
 - `ActuatorDelayedPD.State` - Contains circular buffers for delayed targets
 - `ActuatorRemotizedPD.State` - Inherits `ActuatorDelayedPD.State` (same delay buffers)
+
+Note: `ActuatorNetMLP` and `ActuatorNetLSTM` maintain their history/hidden state as internal instance variables and are not stateful from the framework's perspective — no external state management is required.
 
 ## Workflow
 

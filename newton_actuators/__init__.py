@@ -40,3 +40,10 @@ __all__ = [
     "ParsedActuator",
     "parse_actuator_prim",
 ]
+
+try:
+    from ._src.actuators import ActuatorNetLSTM, ActuatorNetMLP
+
+    __all__ += ["ActuatorNetLSTM", "ActuatorNetMLP"]
+except ImportError:
+    pass

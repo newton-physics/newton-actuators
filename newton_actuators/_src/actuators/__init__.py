@@ -28,3 +28,11 @@ __all__ = [
     "ActuatorPID",
     "ActuatorRemotizedPD",
 ]
+
+try:
+    from .net_lstm import ActuatorNetLSTM
+    from .net_mlp import ActuatorNetMLP
+
+    __all__ += ["ActuatorNetLSTM", "ActuatorNetMLP"]
+except ImportError:
+    pass
