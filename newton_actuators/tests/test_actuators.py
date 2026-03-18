@@ -15,6 +15,7 @@
 
 """Unit tests for actuator implementations."""
 
+import importlib.util
 import unittest
 from dataclasses import dataclass
 
@@ -30,12 +31,7 @@ from newton_actuators import (
     ActuatorRemotizedPD,
 )
 
-try:
-    import torch
-
-    _HAS_TORCH = True
-except ImportError:
-    _HAS_TORCH = False
+_HAS_TORCH = importlib.util.find_spec("torch") is not None
 
 
 @dataclass
@@ -1114,35 +1110,34 @@ class TestActuatorNetMLP(unittest.TestCase):
             actuator.step(sim_state, sim_control, None, None)
 
 
-if _HAS_TORCH:
-
-    class _SimpleLSTMNet(torch.nn.Module):
-        """Test LSTM network: LSTM encoder + Linear decoder."""
-
-        def __init__(self, input_size=2, hidden_size=8, output_size=1, num_layers=1):
-            super().__init__()
-            self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-            self.decoder = torch.nn.Linear(hidden_size, output_size)
-
-        def forward(self, x, hc):
-            lstm_out, (h_new, c_new) = self.lstm(x, hc)
-            output = self.decoder(lstm_out[:, -1, :])
-            return output, (h_new, c_new)
-
-
 @unittest.skipUnless(_HAS_TORCH, "torch not installed")
 class TestActuatorNetLSTM(unittest.TestCase):
     """Tests for ActuatorNetLSTM."""
 
     def setUp(self):
         wp.init()
-        import torch
+        import torch  # noqa: PLC0415
 
         self.torch = torch
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.wp_device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     def _make_lstm(self, hidden_size=8, num_layers=1):
+        import torch  # noqa: PLC0415
+
+        class _SimpleLSTMNet(torch.nn.Module):
+            """Test LSTM network: LSTM encoder + Linear decoder."""
+
+            def __init__(self, input_size=2, hidden_size=8, output_size=1, num_layers=1):
+                super().__init__()
+                self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+                self.decoder = torch.nn.Linear(hidden_size, output_size)
+
+            def forward(self, x, hc):
+                lstm_out, (h_new, c_new) = self.lstm(x, hc)
+                output = self.decoder(lstm_out[:, -1, :])
+                return output, (h_new, c_new)
+
         return _SimpleLSTMNet(input_size=2, hidden_size=hidden_size, num_layers=num_layers)
 
     def test_lstm_creation(self):

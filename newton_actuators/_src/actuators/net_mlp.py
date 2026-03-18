@@ -17,7 +17,6 @@
 
 from typing import Any
 
-import torch
 import warp as wp
 
 from ..kernels import nn_output_kernel
@@ -77,6 +76,8 @@ class ActuatorNetMLP(Actuator):
             control_target_pos_attr: Attribute on sim_control for target positions.
             control_output_attr: Attribute on sim_control for output forces.
         """
+        import torch
+
         super().__init__(input_indices, output_indices, control_output_attr)
 
         if len(max_force) != self.num_actuators:
@@ -117,6 +118,8 @@ class ActuatorNetMLP(Actuator):
         dt: float,
     ) -> None:
         """Compute MLP network torques."""
+        import torch
+
         current_pos = wp.to_torch(getattr(sim_state, self.state_pos_attr))
         current_vel = wp.to_torch(getattr(sim_state, self.state_vel_attr))
         target_pos = wp.to_torch(getattr(sim_control, self.control_target_pos_attr))

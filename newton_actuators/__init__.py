@@ -19,6 +19,8 @@ from ._src.actuators import (
     Actuator,
     ActuatorDCMotor,
     ActuatorDelayedPD,
+    ActuatorNetLSTM,
+    ActuatorNetMLP,
     ActuatorPD,
     ActuatorPID,
     ActuatorRemotizedPD,
@@ -34,16 +36,11 @@ __all__ = [
     "Actuator",
     "ActuatorDCMotor",
     "ActuatorDelayedPD",
+    "ActuatorNetLSTM",
+    "ActuatorNetMLP",
     "ActuatorPD",
     "ActuatorPID",
     "ActuatorRemotizedPD",
     "ParsedActuator",
     "parse_actuator_prim",
 ]
-
-try:
-    from ._src.actuators import ActuatorNetLSTM, ActuatorNetMLP
-
-    __all__ += ["ActuatorNetLSTM", "ActuatorNetMLP"]
-except ImportError:
-    pass
