@@ -15,6 +15,7 @@
 
 """MLP-based neural network actuator."""
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,6 +42,8 @@ class ActuatorNetMLP(Actuator):
     Stateful: maintains position error and velocity history buffers.
     """
 
+    SCALAR_PARAMS = {"network_path"}
+
     @dataclass
     class State:
         """History buffers for MLP actuator."""
@@ -53,13 +56,39 @@ class ActuatorNetMLP(Actuator):
             self.pos_error_history.zero_()
             self.vel_history.zero_()
 
-    SCALAR_PARAMS = {"network"}
-
     def is_stateful(self) -> bool:
         return True
 
     def is_graphable(self) -> bool:
         return False
+
+    @classmethod
+    def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
+        """Resolve arguments with defaults. Requires 'network_path'.
+
+        Args:
+            args (dict): User-provided arguments.
+
+        Returns:
+            dict: Arguments with defaults.
+
+        Raises:
+            ValueError: If 'network_path' not provided.
+        """
+        import torch
+
+        if "network_path" not in args:
+            raise ValueError("ActuatorNetMLP requires 'network_path' argument")
+        return {
+            "network": torch.jit.load(args["network_path"]).eval(),
+            "network_path": args["network_path"],
+            "max_force": args.get("max_force", math.inf),
+            "pos_scale": args.get("pos_scale", 1.0),
+            "vel_scale": args.get("vel_scale", 1.0),
+            "torque_scale": args.get("torque_scale", 1.0),
+            "input_order": args.get("input_order", "pos_vel"),
+            "input_idx": args.get("input_idx", None),
+        }
 
     def __init__(
         self,
@@ -72,6 +101,7 @@ class ActuatorNetMLP(Actuator):
         torque_scale: float = 1.0,
         input_order: str = "pos_vel",
         input_idx: list[int] | None = None,
+        network_path: str | None = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
         control_target_pos_attr: str = "joint_target_pos",
@@ -82,7 +112,7 @@ class ActuatorNetMLP(Actuator):
         Args:
             input_indices: DOF indices for reading state and targets. Shape (N,).
             output_indices: DOF indices for writing output. Shape (N,).
-            network: Pre-trained network (torch.nn.Module) or path to TorchScript file.
+            network: Pre-trained network (torch.nn.Module).
                 Must accept (batch, input_dim) and return (batch, 1) or (batch,).
             max_force: Per-actuator force limits. Shape (N,).
             pos_scale: Scaling factor for position error inputs.
@@ -91,6 +121,7 @@ class ActuatorNetMLP(Actuator):
             input_order: Concatenation order, "pos_vel" or "vel_pos".
             input_idx: History timestep indices to feed the network. 0 = current step,
                 1 = one step ago, etc. Default [0] (current only).
+            network_path: Original file path the network was loaded from. Stored for grouping via SCALAR_PARAMS.
             state_pos_attr: Attribute on sim_state for joint positions.
             state_vel_attr: Attribute on sim_state for joint velocities.
             control_target_pos_attr: Attribute on sim_control for target positions.
@@ -110,14 +141,12 @@ class ActuatorNetMLP(Actuator):
         self.input_order = input_order
         self.input_idx = input_idx if input_idx else [0]
         self.history_length = max(self.input_idx) + 1
+        self.network_path = network_path
 
         device = input_indices.device
         self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
 
-        if isinstance(network, str):
-            self.network = torch.jit.load(network, map_location=self._torch_device).eval()
-        else:
-            self.network = network.to(self._torch_device).eval()
+        self.network = network.to(self._torch_device).eval()
 
         self._torch_indices = torch.tensor(input_indices.numpy(), dtype=torch.long, device=self._torch_device)
 

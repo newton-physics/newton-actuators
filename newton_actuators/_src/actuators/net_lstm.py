@@ -15,6 +15,7 @@
 
 """LSTM-based neural network actuator."""
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,6 +46,8 @@ class ActuatorNetLSTM(Actuator):
     Stateful: maintains LSTM hidden and cell states.
     """
 
+    SCALAR_PARAMS = {"network_path"}
+
     @dataclass
     class State:
         """LSTM hidden and cell state."""
@@ -57,13 +60,34 @@ class ActuatorNetLSTM(Actuator):
             self.hidden.zero_()
             self.cell.zero_()
 
-    SCALAR_PARAMS = {"network"}
-
     def is_stateful(self) -> bool:
         return True
 
     def is_graphable(self) -> bool:
         return False
+
+    @classmethod
+    def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
+        """Resolve arguments with defaults. Requires 'network_path'.
+
+        Args:
+            args (dict): User-provided arguments.
+
+        Returns:
+            dict: Arguments with defaults.
+
+        Raises:
+            ValueError: If 'network_path' not provided.
+        """
+        import torch
+
+        if "network_path" not in args:
+            raise ValueError("ActuatorNetLSTM requires 'network_path' argument")
+        return {
+            "network": torch.jit.load(args["network_path"]).eval(),
+            "network_path": args["network_path"],
+            "max_force": args.get("max_force", math.inf),
+        }
 
     def __init__(
         self,
@@ -71,6 +95,7 @@ class ActuatorNetLSTM(Actuator):
         output_indices: wp.array,
         network: Any,
         max_force: wp.array,
+        network_path: str | None = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
         control_target_pos_attr: str = "joint_target_pos",
@@ -81,10 +106,12 @@ class ActuatorNetLSTM(Actuator):
         Args:
             input_indices: DOF indices for reading state and targets. Shape (N,).
             output_indices: DOF indices for writing output. Shape (N,).
-            network: Pre-trained LSTM network (torch.nn.Module) or path to TorchScript file.
+            network: Pre-trained LSTM network (torch.nn.Module).
                 Must be callable as network(input, (h, c)) -> (output, (h_new, c_new)) and
                 expose a `lstm` attribute for dimension inference.
             max_force: Per-actuator force limits. Shape (N,).
+            network_path: Original file path the network was loaded from. Stored for
+                 grouping via SCALAR_PARAMS.
             state_pos_attr: Attribute on sim_state for joint positions.
             state_vel_attr: Attribute on sim_state for joint velocities.
             control_target_pos_attr: Attribute on sim_control for target positions.
@@ -98,14 +125,12 @@ class ActuatorNetLSTM(Actuator):
             raise ValueError(f"max_force length ({len(max_force)}) must match num_actuators ({self.num_actuators})")
 
         self.max_force = max_force
+        self.network_path = network_path
 
         device = input_indices.device
         self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
 
-        if isinstance(network, str):
-            self.network = torch.jit.load(network, map_location=self._torch_device).eval()
-        else:
-            self.network = network.to(self._torch_device).eval()
+        self.network = network.to(self._torch_device).eval()
 
         lstm = self.network.lstm
         if not hasattr(lstm, "num_layers"):
