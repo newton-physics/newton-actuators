@@ -53,6 +53,8 @@ class ActuatorNetMLP(Actuator):
             self.pos_error_history.zero_()
             self.vel_history.zero_()
 
+    SCALAR_PARAMS = {"network"}
+
     def is_stateful(self) -> bool:
         return True
 
@@ -106,7 +108,7 @@ class ActuatorNetMLP(Actuator):
         self.vel_scale = vel_scale
         self.torque_scale = torque_scale
         self.input_order = input_order
-        self.input_idx = input_idx if input_idx is not None else [0]
+        self.input_idx = input_idx if input_idx else [0]
         self.history_length = max(self.input_idx) + 1
 
         device = input_indices.device

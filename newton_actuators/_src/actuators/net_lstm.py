@@ -57,6 +57,8 @@ class ActuatorNetLSTM(Actuator):
             self.hidden.zero_()
             self.cell.zero_()
 
+    SCALAR_PARAMS = {"network"}
+
     def is_stateful(self) -> bool:
         return True
 

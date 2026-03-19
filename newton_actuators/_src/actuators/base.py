@@ -31,7 +31,9 @@ class Actuator:
         3. Transmission: maps actuation forces to output (e.g., via Jacobian)
 
     Class Attributes:
-        SCALAR_PARAMS: Set of parameter names that are scalars (not per-DOF arrays).
+        SCALAR_PARAMS: Set of parameter names that are instance-level (shared across
+            all DOFs). These cannot vary per-DOF, so different values require
+            separate actuator instances (e.g., delay, network).
     """
 
     SCALAR_PARAMS: set[str] = set()
