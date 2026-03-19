@@ -33,8 +33,8 @@ pip install -e .
 | `ActuatorDelayedPD` | PD controller with input delay | Yes | No |
 | `ActuatorDCMotor` | PD with DC motor velocity-dependent saturation | No | No |
 | `ActuatorRemotizedPD` | Delayed PD with angle-dependent torque limits | Yes | No |
-| `ActuatorNetMLP` | MLP network actuator with position/velocity history | No | No |
-| `ActuatorNetLSTM` | LSTM network actuator with recurrent hidden state | No | No |
+| `ActuatorNetMLP` | MLP network actuator with position/velocity history | Yes | No |
+| `ActuatorNetLSTM` | LSTM network actuator with recurrent hidden state | Yes | No |
 
 #### Control Laws
 
@@ -65,7 +65,8 @@ Stateful actuators use nested State classes:
 - `ActuatorDelayedPD.State` - Contains circular buffers for delayed targets
 - `ActuatorRemotizedPD.State` - Inherits `ActuatorDelayedPD.State` (same delay buffers)
 
-Note: `ActuatorNetMLP` and `ActuatorNetLSTM` maintain their history/hidden state as internal instance variables and are not stateful from the framework's perspective — no external state management is required.
+- `ActuatorNetMLP.State` - Contains position error and velocity history buffers
+- `ActuatorNetLSTM.State` - Contains LSTM hidden and cell state tensors
 
 ## Workflow
 
@@ -127,6 +128,27 @@ current_state, next_state = state_a, state_b
 for step in range(num_steps):
     pid_actuator.step(sim_state, sim_control, current_state, next_state, dt=0.01)
     current_state, next_state = next_state, current_state  # Swap buffers
+```
+
+### Non-Graphable Stateful Actuator (ActuatorNetLSTM)
+
+Network actuators (`ActuatorNetMLP`, `ActuatorNetLSTM`) are stateful but not
+CUDA-graphable due to Warp-PyTorch interop. Because their `step()` cannot be
+captured in a CUDA graph, double-buffering is not strictly required — you can
+pass the **same state object** as both `current_state` and `next_state` to
+simplify your code:
+
+```python
+# Simple: single state object (fine when not using CUDA graphs)
+state = lstm_actuator.state()
+for step in range(num_steps):
+    lstm_actuator.step(sim_state, sim_control, state, state, dt=0.01)
+```
+
+To reset state between episodes, call `state.reset()`:
+
+```python
+state.reset()
 ```
 
 ### DC Motor Actuator

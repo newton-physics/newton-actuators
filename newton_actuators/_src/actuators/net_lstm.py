@@ -15,6 +15,7 @@
 
 """LSTM-based neural network actuator."""
 
+from dataclasses import dataclass
 from typing import Any
 
 import warp as wp
@@ -40,7 +41,24 @@ class ActuatorNetLSTM(Actuator):
     num_layers and hidden_size can be inferred automatically.
 
     Output: torque = network_output, clamped to ±max_force.
+
+    Stateful: maintains LSTM hidden and cell states.
     """
+
+    @dataclass
+    class State:
+        """LSTM hidden and cell state."""
+
+        hidden: Any = None
+        cell: Any = None
+
+        def reset(self) -> None:
+            """Zero hidden and cell state in-place."""
+            self.hidden.zero_()
+            self.cell.zero_()
+
+    def is_stateful(self) -> bool:
+        return True
 
     def is_graphable(self) -> bool:
         return False
@@ -87,8 +105,25 @@ class ActuatorNetLSTM(Actuator):
         else:
             self.network = network.to(self._torch_device).eval()
 
-        num_layers = self.network.lstm.num_layers
-        hidden_size = self.network.lstm.hidden_size
+        lstm = self.network.lstm
+        if not hasattr(lstm, "num_layers"):
+            raise ValueError("network.lstm must be a torch.nn.LSTM (missing num_layers attribute)")
+        if not lstm.batch_first:
+            raise ValueError(
+                "network.lstm.batch_first must be True; ActuatorNetLSTM feeds input as (batch, seq_len=1, input_size=2)"
+            )
+        if lstm.input_size != 2:
+            raise ValueError(f"network.lstm.input_size must be 2 (pos_error, velocity); got {lstm.input_size}")
+        if lstm.bidirectional:
+            raise ValueError(
+                "network.lstm must not be bidirectional; "
+                "ActuatorNetLSTM expects num_directions=1 for hidden/cell state shapes"
+            )
+        if getattr(lstm, "proj_size", 0) != 0:
+            raise ValueError(f"network.lstm.proj_size must be 0 (no projection); got {lstm.proj_size}")
+
+        self._num_layers = lstm.num_layers
+        self._hidden_size = lstm.hidden_size
 
         self._torch_indices = torch.tensor(input_indices.numpy(), dtype=torch.long, device=self._torch_device)
 
@@ -96,16 +131,13 @@ class ActuatorNetLSTM(Actuator):
         self.state_vel_attr = state_vel_attr
         self.control_target_pos_attr = control_target_pos_attr
 
-        self.hidden = torch.zeros(num_layers, self.num_actuators, hidden_size, device=self._torch_device)
-        self.cell = torch.zeros(num_layers, self.num_actuators, hidden_size, device=self._torch_device)
-
     def _run_controller(
         self,
         sim_state: Any,
         sim_control: Any,
         controller_output: wp.array,
         output_indices: wp.array,
-        current_state: Any,
+        current_state: "ActuatorNetLSTM.State",
         dt: float,
     ) -> None:
         """Compute LSTM network torques."""
@@ -122,9 +154,12 @@ class ActuatorNetLSTM(Actuator):
         net_input = torch.stack([pos_error, vel], dim=1).unsqueeze(1)
 
         with torch.inference_mode():
-            torques, (self.hidden, self.cell) = self.network(net_input, (self.hidden, self.cell))
+            torques, (current_state.hidden, current_state.cell) = self.network(
+                net_input,
+                (current_state.hidden, current_state.cell),
+            )
 
-        torques = torques.reshape(-1)
+        torques = torques.reshape(self.num_actuators)
         torques_wp = wp.from_torch(torques.contiguous(), dtype=wp.float32)
 
         wp.launch(
@@ -132,4 +167,27 @@ class ActuatorNetLSTM(Actuator):
             dim=self.num_actuators,
             inputs=[torques_wp, self.max_force, output_indices],
             outputs=[controller_output],
+        )
+
+    def _run_state_manager(
+        self,
+        sim_state: Any,
+        sim_control: Any,
+        current_state: "ActuatorNetLSTM.State",
+        next_state: "ActuatorNetLSTM.State",
+        dt: float,
+    ) -> None:
+        """Persist updated LSTM hidden/cell state."""
+        if next_state is None:
+            return
+        next_state.hidden = current_state.hidden
+        next_state.cell = current_state.cell
+
+    def state(self) -> "ActuatorNetLSTM.State":
+        """Return a new state with zeroed hidden and cell tensors."""
+        import torch
+
+        return ActuatorNetLSTM.State(
+            hidden=torch.zeros(self._num_layers, self.num_actuators, self._hidden_size, device=self._torch_device),
+            cell=torch.zeros(self._num_layers, self.num_actuators, self._hidden_size, device=self._torch_device),
         )

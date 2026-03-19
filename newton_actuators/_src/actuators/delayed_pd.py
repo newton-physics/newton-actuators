@@ -45,6 +45,14 @@ class ActuatorDelayedPD(Actuator):
         write_idx: int = 0  # Last write position
         is_filled: bool = False  # Buffer filled at least once
 
+        def reset(self) -> None:
+            """Zero buffers and reset bookkeeping in-place."""
+            self.buffer_pos.zero_()
+            self.buffer_vel.zero_()
+            self.buffer_act.zero_()
+            self.write_idx = 0
+            self.is_filled = False
+
     def is_stateful(self) -> bool:
         return True
 

@@ -15,6 +15,7 @@
 
 """MLP-based neural network actuator."""
 
+from dataclasses import dataclass
 from typing import Any
 
 import warp as wp
@@ -36,7 +37,24 @@ class ActuatorNetMLP(Actuator):
         network_input = cat(pos_input, vel_input)   # or vel, pos if input_order="vel_pos"
 
     Output: torque = network(input) * torque_scale, clamped to ±max_force.
+
+    Stateful: maintains position error and velocity history buffers.
     """
+
+    @dataclass
+    class State:
+        """History buffers for MLP actuator."""
+
+        pos_error_history: Any = None
+        vel_history: Any = None
+
+        def reset(self) -> None:
+            """Zero history buffers in-place."""
+            self.pos_error_history.zero_()
+            self.vel_history.zero_()
+
+    def is_stateful(self) -> bool:
+        return True
 
     def is_graphable(self) -> bool:
         return False
@@ -105,16 +123,13 @@ class ActuatorNetMLP(Actuator):
         self.state_vel_attr = state_vel_attr
         self.control_target_pos_attr = control_target_pos_attr
 
-        self.pos_error_history = torch.zeros(self.history_length, self.num_actuators, device=self._torch_device)
-        self.vel_history = torch.zeros(self.history_length, self.num_actuators, device=self._torch_device)
-
     def _run_controller(
         self,
         sim_state: Any,
         sim_control: Any,
         controller_output: wp.array,
         output_indices: wp.array,
-        current_state: Any,
+        current_state: "ActuatorNetMLP.State",
         dt: float,
     ) -> None:
         """Compute MLP network torques."""
@@ -127,12 +142,12 @@ class ActuatorNetMLP(Actuator):
         pos_error = target_pos[self._torch_indices] - current_pos[self._torch_indices]
         vel = current_vel[self._torch_indices]
 
-        # Write current values at index 0 and run network.
-        self.pos_error_history[0] = pos_error
-        self.vel_history[0] = vel
+        # Write current values at index 0; state manager will roll this into history.
+        current_state.pos_error_history[0] = pos_error
+        current_state.vel_history[0] = vel
 
-        pos_input = torch.stack([self.pos_error_history[i] for i in self.input_idx], dim=1)
-        vel_input = torch.stack([self.vel_history[i] for i in self.input_idx], dim=1)
+        pos_input = torch.stack([current_state.pos_error_history[i] for i in self.input_idx], dim=1)
+        vel_input = torch.stack([current_state.vel_history[i] for i in self.input_idx], dim=1)
 
         if self.input_order == "pos_vel":
             net_input = torch.cat([pos_input * self.pos_scale, vel_input * self.vel_scale], dim=1)
@@ -156,6 +171,25 @@ class ActuatorNetMLP(Actuator):
             outputs=[controller_output],
         )
 
-        # Roll history so index 0 is free for the next step.
-        self.pos_error_history = self.pos_error_history.roll(1, 0)
-        self.vel_history = self.vel_history.roll(1, 0)
+    def _run_state_manager(
+        self,
+        sim_state: Any,
+        sim_control: Any,
+        current_state: "ActuatorNetMLP.State",
+        next_state: "ActuatorNetMLP.State",
+        dt: float,
+    ) -> None:
+        """Persist updated history buffers to next state."""
+        if next_state is None:
+            return
+        next_state.pos_error_history = current_state.pos_error_history.roll(1, 0)
+        next_state.vel_history = current_state.vel_history.roll(1, 0)
+
+    def state(self) -> "ActuatorNetMLP.State":
+        """Return a new state with zeroed history buffers."""
+        import torch
+
+        return ActuatorNetMLP.State(
+            pos_error_history=torch.zeros(self.history_length, self.num_actuators, device=self._torch_device),
+            vel_history=torch.zeros(self.history_length, self.num_actuators, device=self._torch_device),
+        )
