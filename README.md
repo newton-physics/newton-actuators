@@ -22,6 +22,25 @@ cd newton-actuators
 pip install -e .
 ```
 
+### With PyTorch (for neural network actuators)
+
+The `ActuatorNetMLP` and `ActuatorNetLSTM` actuators require PyTorch. Install
+the extra matching your CUDA version (run `nvidia-smi` to check):
+
+**Using uv** (index routing is automatic):
+
+```bash
+uv pip install "newton-actuators[torch-cu12]"   # CUDA 12.x
+uv pip install "newton-actuators[torch-cu13]"   # CUDA 13.x
+```
+
+**Using pip** (requires manual `--extra-index-url`):
+
+```bash
+pip install "newton-actuators[torch-cu12]" --extra-index-url https://download.pytorch.org/whl/cu128
+pip install "newton-actuators[torch-cu13]" --extra-index-url https://download.pytorch.org/whl/cu130
+```
+
 ## API Reference
 
 ### Actuator Classes

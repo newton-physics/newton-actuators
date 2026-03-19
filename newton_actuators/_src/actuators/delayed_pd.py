@@ -50,7 +50,7 @@ class ActuatorDelayedPD(Actuator):
             self.buffer_pos.zero_()
             self.buffer_vel.zero_()
             self.buffer_act.zero_()
-            self.write_idx = 0
+            self.write_idx = self.buffer_pos.shape[0] - 1
             self.is_filled = False
 
     def is_stateful(self) -> bool:
