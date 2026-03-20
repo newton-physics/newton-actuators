@@ -80,7 +80,7 @@ class ActuatorNetMLP(Actuator):
         if "network_path" not in args:
             raise ValueError("ActuatorNetMLP requires 'network_path' argument")
         return {
-            "network": torch.jit.load(args["network_path"]).eval(),
+            "network": torch.jit.load(args["network_path"], map_location="cpu").eval(),
             "network_path": args["network_path"],
             "max_force": args.get("max_force", math.inf),
             "pos_scale": args.get("pos_scale", 1.0),
@@ -138,8 +138,14 @@ class ActuatorNetMLP(Actuator):
         self.pos_scale = pos_scale
         self.vel_scale = vel_scale
         self.torque_scale = torque_scale
+        if input_order not in ("pos_vel", "vel_pos"):
+            raise ValueError(f"input_order must be 'pos_vel' or 'vel_pos'; got '{input_order}'")
         self.input_order = input_order
-        self.input_idx = input_idx if input_idx else [0]
+        self.input_idx = input_idx if input_idx is None else input_idx
+        if not self.input_idx:
+            self.input_idx = [0]
+        if any(i < 0 for i in self.input_idx):
+            raise ValueError(f"input_idx must contain non-negative integers; got {self.input_idx}")
         self.history_length = max(self.input_idx) + 1
 
         device = input_indices.device
@@ -186,12 +192,8 @@ class ActuatorNetMLP(Actuator):
 
         if self.input_order == "pos_vel":
             net_input = torch.cat([pos_input * self.pos_scale, vel_input * self.vel_scale], dim=1)
-        elif self.input_order == "vel_pos":
-            net_input = torch.cat([vel_input * self.vel_scale, pos_input * self.pos_scale], dim=1)
         else:
-            raise ValueError(
-                f"Invalid input_order for ActuatorNetMLP: '{self.input_order}'. Must be 'pos_vel' or 'vel_pos'."
-            )
+            net_input = torch.cat([vel_input * self.vel_scale, pos_input * self.pos_scale], dim=1)
 
         with torch.inference_mode():
             torques = self.network(net_input)

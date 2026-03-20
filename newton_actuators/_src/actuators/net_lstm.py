@@ -84,7 +84,7 @@ class ActuatorNetLSTM(Actuator):
         if "network_path" not in args:
             raise ValueError("ActuatorNetLSTM requires 'network_path' argument")
         return {
-            "network": torch.jit.load(args["network_path"]).eval(),
+            "network": torch.jit.load(args["network_path"], map_location="cpu").eval(),
             "network_path": args["network_path"],
             "max_force": args.get("max_force", math.inf),
         }
@@ -158,6 +158,9 @@ class ActuatorNetLSTM(Actuator):
 
         self._torch_indices = torch.tensor(input_indices.numpy(), dtype=torch.long, device=self._torch_device)
 
+        self._hidden: Any = None
+        self._cell: Any = None
+
         self.state_pos_attr = state_pos_attr
         self.state_vel_attr = state_vel_attr
         self.control_target_pos_attr = control_target_pos_attr
@@ -185,7 +188,7 @@ class ActuatorNetLSTM(Actuator):
         net_input = torch.stack([pos_error, vel], dim=1).unsqueeze(1)
 
         with torch.inference_mode():
-            torques, (current_state.hidden, current_state.cell) = self.network(
+            torques, (self._hidden, self._cell) = self.network(
                 net_input,
                 (current_state.hidden, current_state.cell),
             )
@@ -211,8 +214,8 @@ class ActuatorNetLSTM(Actuator):
         """Persist updated LSTM hidden/cell state."""
         if next_state is None:
             return
-        next_state.hidden = current_state.hidden
-        next_state.cell = current_state.cell
+        next_state.hidden = self._hidden
+        next_state.cell = self._cell
 
     def state(self) -> "ActuatorNetLSTM.State":
         """Return a new state with zeroed hidden and cell tensors."""
