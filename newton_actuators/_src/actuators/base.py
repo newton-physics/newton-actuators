@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
-"""Base actuator class."""
-
 from typing import Any
 
 import numpy as np

@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
-"""USD parser for actuator prims."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field

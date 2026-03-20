@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
-"""PD controller with input delay."""
-
 import math
 from dataclasses import dataclass
 from typing import Any
