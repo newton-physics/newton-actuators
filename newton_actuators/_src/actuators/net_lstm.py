@@ -79,12 +79,9 @@ class ActuatorNetLSTM(Actuator):
         Raises:
             ValueError: If 'network_path' not provided.
         """
-        import torch
-
         if "network_path" not in args:
             raise ValueError("ActuatorNetLSTM requires 'network_path' argument")
         return {
-            "network": torch.jit.load(args["network_path"], map_location="cpu").eval(),
             "network_path": args["network_path"],
             "max_force": args.get("max_force", math.inf),
         }
@@ -93,8 +90,8 @@ class ActuatorNetLSTM(Actuator):
         self,
         input_indices: wp.array,
         output_indices: wp.array,
-        network: Any,
         max_force: wp.array,
+        network: Any = None,
         network_path: str | None = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
@@ -106,12 +103,9 @@ class ActuatorNetLSTM(Actuator):
         Args:
             input_indices: DOF indices for reading state and targets. Shape (N,).
             output_indices: DOF indices for writing output. Shape (N,).
-            network: Pre-trained LSTM network (torch.nn.Module).
-                Must be callable as network(input, (h, c)) -> (output, (h_new, c_new)) and
-                expose a `lstm` attribute for dimension inference.
             max_force: Per-actuator force limits. Shape (N,).
-            network_path: Original file path the network was loaded from. Stored for
-                 grouping via SCALAR_PARAMS.
+            network: Pre-trained LSTM network (torch.nn.Module). If None, loaded from network_path.
+            network_path: Path to a TorchScript model file. Used when network is None.
             state_pos_attr: Attribute on sim_state for joint positions.
             state_vel_attr: Attribute on sim_state for joint velocities.
             control_target_pos_attr: Attribute on sim_control for target positions.
@@ -129,13 +123,18 @@ class ActuatorNetLSTM(Actuator):
         device = input_indices.device
         self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
 
-        if isinstance(network, str):
-            self.network_path = network
-            self.network = torch.jit.load(network, map_location=self._torch_device).eval()
-        else:
-            self.network_path = network_path
+        self.network_path = network_path
+        if network is not None:
             self.network = network.to(self._torch_device).eval()
+        elif network_path is not None:
+            self.network = torch.jit.load(network_path, map_location=self._torch_device).eval()
+        else:
+            raise ValueError("Either 'network' or 'network_path' must be provided")
 
+        if not hasattr(self.network, "lstm"):
+            raise ValueError(
+                "network must expose a 'lstm' attribute (torch.nn.LSTM) for automatic num_layers/hidden_size inference"
+            )
         lstm = self.network.lstm
         if not hasattr(lstm, "num_layers"):
             raise ValueError("network.lstm must be a torch.nn.LSTM (missing num_layers attribute)")
