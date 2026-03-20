@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
-"""DC motor actuator with velocity-dependent torque saturation."""
-
 import math
 from typing import Any
 

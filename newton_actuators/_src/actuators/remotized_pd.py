@@ -1,8 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
-"""PD controller with input delay and angle-dependent torque limits."""
-
 import math
 from typing import Any
 
