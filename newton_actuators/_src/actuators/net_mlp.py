@@ -196,7 +196,7 @@ class ActuatorNetMLP(Actuator):
         with torch.inference_mode():
             torques = self.network(net_input)
 
-        torques = torques.reshape(-1) * self.torque_scale
+        torques = torques.reshape(self.num_actuators) * self.torque_scale
         torques_wp = wp.from_torch(torques.contiguous(), dtype=wp.float32)
 
         wp.launch(
