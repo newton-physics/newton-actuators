@@ -141,12 +141,16 @@ class ActuatorNetMLP(Actuator):
         self.input_order = input_order
         self.input_idx = input_idx if input_idx else [0]
         self.history_length = max(self.input_idx) + 1
-        self.network_path = network_path
 
         device = input_indices.device
         self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
 
-        self.network = network.to(self._torch_device).eval()
+        if isinstance(network, str):
+            self.network_path = network
+            self.network = torch.jit.load(network, map_location=self._torch_device).eval()
+        else:
+            self.network_path = network_path
+            self.network = network.to(self._torch_device).eval()
 
         self._torch_indices = torch.tensor(input_indices.numpy(), dtype=torch.long, device=self._torch_device)
 

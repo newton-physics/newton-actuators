@@ -56,9 +56,9 @@ class ActuatorNetLSTM(Actuator):
         cell: Any = None
 
         def reset(self) -> None:
-            """Zero hidden and cell state in-place."""
-            self.hidden.zero_()
-            self.cell.zero_()
+            """Reset hidden and cell state to zeros."""
+            self.hidden = self.hidden.new_zeros(self.hidden.shape)
+            self.cell = self.cell.new_zeros(self.cell.shape)
 
     def is_stateful(self) -> bool:
         return True
@@ -125,12 +125,16 @@ class ActuatorNetLSTM(Actuator):
             raise ValueError(f"max_force length ({len(max_force)}) must match num_actuators ({self.num_actuators})")
 
         self.max_force = max_force
-        self.network_path = network_path
 
         device = input_indices.device
         self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
 
-        self.network = network.to(self._torch_device).eval()
+        if isinstance(network, str):
+            self.network_path = network
+            self.network = torch.jit.load(network, map_location=self._torch_device).eval()
+        else:
+            self.network_path = network_path
+            self.network = network.to(self._torch_device).eval()
 
         lstm = self.network.lstm
         if not hasattr(lstm, "num_layers"):
