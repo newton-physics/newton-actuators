@@ -25,7 +25,7 @@ pip install -e .
 ### With PyTorch (for neural network actuators)
 
 The `ActuatorNetMLP` and `ActuatorNetLSTM` actuators require PyTorch. Install
-the extra matching your CUDA version (run `nvidia-smi` to check):
+the extra matching your CUDA version:
 
 **Using uv** (index routing is automatic):
 
@@ -94,6 +94,7 @@ Stateful actuators use nested State classes:
 3. **Initialize states**: For stateful actuators, create double-buffered states with `actuator.state()`
 4. **Simulation loop**: Call `actuator.step()` to compute forces
 5. **Swap buffers**: For stateful actuators, swap state buffers after each step
+6. **Reset between episodes**: Call `state.reset()` on any stateful actuator's state to zero internal buffers without reallocating
 
 ## Examples
 
@@ -154,41 +155,13 @@ for step in range(num_steps):
 Network actuators (`ActuatorNetMLP`, `ActuatorNetLSTM`) are stateful but not
 CUDA-graphable due to Warp-PyTorch interop. Because their `step()` cannot be
 captured in a CUDA graph, double-buffering is not strictly required — you can
-pass the **same state object** as both `current_state` and `next_state` to
-simplify your code:
+pass the **same state object** as both `current_state` and `next_state`:
 
 ```python
 # Simple: single state object (fine when not using CUDA graphs)
 state = lstm_actuator.state()
 for step in range(num_steps):
     lstm_actuator.step(sim_state, sim_control, state, state, dt=0.01)
-```
-
-To reset state between episodes, call `state.reset()`:
-
-```python
-state.reset()
-```
-
-### DC Motor Actuator
-
-```python
-import warp as wp
-from newton_actuators import ActuatorDCMotor
-
-indices = wp.array([0, 1], dtype=wp.uint32)
-dc_motor = ActuatorDCMotor(
-    input_indices=indices,
-    output_indices=indices,
-    kp=wp.array([200.0, 200.0], dtype=wp.float32),
-    kd=wp.array([20.0, 20.0], dtype=wp.float32),
-    max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-    saturation_effort=wp.array([80.0, 80.0], dtype=wp.float32),
-    velocity_limit=wp.array([10.0, 10.0], dtype=wp.float32),
-)
-
-# Stateless - no state management needed
-dc_motor.step(sim_state, sim_control, None, None, dt=0.01)
 ```
 
 ## USD Parsing
