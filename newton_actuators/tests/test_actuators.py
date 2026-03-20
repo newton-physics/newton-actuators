@@ -1100,36 +1100,20 @@ class TestActuatorNetMLP(unittest.TestCase):
         self.assertFalse(self.torch.all(active.vel_history == 0.0).item())
 
     def test_mlp_invalid_input_order(self):
-        """Test that an invalid input_order raises ValueError during step."""
+        """Test that an invalid input_order raises ValueError at construction."""
         from newton_actuators import ActuatorNetMLP
 
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
         network = self._make_mlp(input_dim=2)
 
-        actuator = ActuatorNetMLP(
-            input_indices=indices,
-            output_indices=indices,
-            network=network,
-            max_force=wp.array([50.0], dtype=wp.float32, device=self.wp_device),
-            input_order="invalid",
-        )
-
-        stateA = actuator.state()
-        stateB = actuator.state()
-
-        sim_state = MockSimState(
-            joint_q=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
-            joint_qd=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
-        )
-        sim_control = MockSimControl(
-            joint_target_pos=wp.array([1.0], dtype=wp.float32, device=self.wp_device),
-            joint_target_vel=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
-            joint_act=wp.array([0.0], dtype=wp.float32, device=self.wp_device),
-            joint_f=wp.zeros(1, dtype=wp.float32, device=self.wp_device),
-        )
-
         with self.assertRaises(ValueError):
-            actuator.step(sim_state, sim_control, stateA, stateB)
+            ActuatorNetMLP(
+                input_indices=indices,
+                output_indices=indices,
+                network=network,
+                max_force=wp.array([50.0], dtype=wp.float32, device=self.wp_device),
+                input_order="invalid",
+            )
 
 
 @unittest.skipUnless(_HAS_TORCH, "torch not installed")
