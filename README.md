@@ -25,7 +25,7 @@ pip install -e .
 ### With PyTorch (for neural network actuators)
 
 The `ActuatorNetMLP` and `ActuatorNetLSTM` actuators require PyTorch. Install
-the extra matching your CUDA version (run `nvidia-smi` to check):
+the extra matching your CUDA version:
 
 **Using uv** (index routing is automatic):
 
