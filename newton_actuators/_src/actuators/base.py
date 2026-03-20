@@ -31,7 +31,9 @@ class Actuator:
         3. Transmission: maps actuation forces to output (e.g., via Jacobian)
 
     Class Attributes:
-        SCALAR_PARAMS: Set of parameter names that are scalars (not per-DOF arrays).
+        SCALAR_PARAMS: Set of parameter names that are instance-level (shared across
+            all DOFs). These cannot vary per-DOF, so different values require
+            separate actuator instances (e.g., delay, network).
     """
 
     SCALAR_PARAMS: set[str] = set()
@@ -84,6 +86,10 @@ class Actuator:
         and manage double-buffered state objects.
         """
         return False
+
+    def is_graphable(self) -> bool:
+        """Return True if this actuator's step() can be captured in a CUDA graph."""
+        return True
 
     def has_transmission(self) -> bool:
         """Return True if this actuator has a transmission phase."""

@@ -39,6 +39,10 @@ class ActuatorPID(Actuator):
 
         integral: wp.array = None  # Shape (N,)
 
+        def reset(self) -> None:
+            """Zero integral state in-place."""
+            self.integral.zero_()
+
     def is_stateful(self) -> bool:
         return True
 

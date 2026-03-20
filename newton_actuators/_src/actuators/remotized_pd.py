@@ -44,7 +44,7 @@ class ActuatorRemotizedPD(ActuatorDelayedPD):
     Stateful: inherits delay buffers from ActuatorDelayedPD.
     """
 
-    SCALAR_PARAMS = {"delay"}
+    SCALAR_PARAMS = {"delay", "lookup_angles", "lookup_torques"}
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
@@ -67,8 +67,8 @@ class ActuatorRemotizedPD(ActuatorDelayedPD):
             "kp": args.get("kp", 0.0),
             "kd": args.get("kd", 0.0),
             "delay": args["delay"],
-            "lookup_angles": args["lookup_angles"],
-            "lookup_torques": args["lookup_torques"],
+            "lookup_angles": tuple(args["lookup_angles"]),
+            "lookup_torques": tuple(args["lookup_torques"]),
             "constant_force": args.get("constant_force", 0.0),
         }
 
@@ -79,8 +79,8 @@ class ActuatorRemotizedPD(ActuatorDelayedPD):
         kp: wp.array,
         kd: wp.array,
         delay: int,
-        lookup_angles: wp.array,
-        lookup_torques: wp.array,
+        lookup_angles: wp.array | tuple[float, ...] | list[float],
+        lookup_torques: wp.array | tuple[float, ...] | list[float],
         constant_force: wp.array = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
@@ -97,8 +97,10 @@ class ActuatorRemotizedPD(ActuatorDelayedPD):
             kp (wp.array): Proportional gains. Shape (N,).
             kd (wp.array): Derivative gains. Shape (N,).
             delay (int): Number of timesteps to delay inputs.
-            lookup_angles (wp.array): Sorted joint angles for the torque lookup table. Shape (K,).
-            lookup_torques (wp.array): Max output torques corresponding to lookup_angles. Shape (K,).
+            lookup_angles: Sorted joint angles for the torque lookup table. Shape (K,).
+                Accepts wp.array, tuple, or list — sequences are converted to wp.array internally.
+            lookup_torques: Max output torques corresponding to lookup_angles. Shape (K,).
+                Accepts wp.array, tuple, or list — sequences are converted to wp.array internally.
             constant_force (wp.array, optional): Constant offsets. Shape (N,). None to skip.
             state_pos_attr (str): Attribute on sim_state for positions.
             state_vel_attr (str): Attribute on sim_state for velocities.
@@ -131,6 +133,12 @@ class ActuatorRemotizedPD(ActuatorDelayedPD):
             raise ValueError(
                 f"lookup_angles length ({len(lookup_angles)}) must match lookup_torques length ({len(lookup_torques)})"
             )
+
+        device = input_indices.device
+        if not isinstance(lookup_angles, wp.array):
+            lookup_angles = wp.array(np.array(lookup_angles, dtype=np.float32), device=device)
+        if not isinstance(lookup_torques, wp.array):
+            lookup_torques = wp.array(np.array(lookup_torques, dtype=np.float32), device=device)
 
         self.lookup_angles = lookup_angles
         self.lookup_torques = lookup_torques

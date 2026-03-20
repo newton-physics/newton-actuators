@@ -22,6 +22,25 @@ cd newton-actuators
 pip install -e .
 ```
 
+### With PyTorch (for neural network actuators)
+
+The `ActuatorNetMLP` and `ActuatorNetLSTM` actuators require PyTorch. Install
+the extra matching your CUDA version (run `nvidia-smi` to check):
+
+**Using uv** (index routing is automatic):
+
+```bash
+uv pip install "newton-actuators[torch-cu12]"   # CUDA 12.x
+uv pip install "newton-actuators[torch-cu13]"   # CUDA 13.x
+```
+
+**Using pip** (requires manual `--extra-index-url`):
+
+```bash
+pip install "newton-actuators[torch-cu12]" --extra-index-url https://download.pytorch.org/whl/cu128
+pip install "newton-actuators[torch-cu13]" --extra-index-url https://download.pytorch.org/whl/cu130
+```
+
 ## API Reference
 
 ### Actuator Classes
@@ -33,6 +52,8 @@ pip install -e .
 | `ActuatorDelayedPD` | PD controller with input delay | Yes | No |
 | `ActuatorDCMotor` | PD with DC motor velocity-dependent saturation | No | No |
 | `ActuatorRemotizedPD` | Delayed PD with angle-dependent torque limits | Yes | No |
+| `ActuatorNetMLP` | MLP network actuator with position/velocity history | Yes | No |
+| `ActuatorNetLSTM` | LSTM network actuator with recurrent hidden state | Yes | No |
 
 #### Control Laws
 
@@ -41,6 +62,8 @@ pip install -e .
 - **ActuatorDelayedPD**: Same as PD but with delayed targets (circular buffer)
 - **ActuatorDCMotor**: Same PD force computation, but torque is clamped to velocity-dependent bounds from the motor torque-speed curve: `τ_max(v) = clamp(τ_sat·(1 - v/v_max), 0, effort_limit)`, `τ_min(v) = clamp(τ_sat·(-1 - v/v_max), -effort_limit, 0)`, `τ = clamp(τ, τ_min(v), τ_max(v))`
 - **ActuatorRemotizedPD**: Same as DelayedPD, but torque limits are interpolated from an angle-dependent lookup table: `τ_limit = interp(q, lookup_table)`
+- **ActuatorNetMLP**: `τ = clamp(network(cat(pos_error_history * pos_scale, vel_history * vel_scale)) * torque_scale, ±max_force)` — history is maintained internally
+- **ActuatorNetLSTM**: `τ = clamp(network(input, (h, c)), ±max_force)` — hidden and cell state maintained internally
 
 ### Base Class Methods
 
@@ -48,6 +71,7 @@ All actuators inherit from `Actuator` and provide these methods:
 
 - `resolve_arguments(args) -> dict`: (classmethod) Resolve user-provided arguments with defaults
 - `is_stateful() -> bool`: Returns True if the actuator maintains internal state
+- `is_graphable() -> bool`: Returns True if `step()` can be captured in a CUDA graph (False for torch-based NN actuators)
 - `has_transmission() -> bool`: Returns True if the actuator has a transmission phase
 - `state() -> State | None`: Returns a new state instance (None for stateless actuators)
 - `step(sim_state, sim_control, current_state, next_state, dt)`: Execute one control step
@@ -59,6 +83,9 @@ Stateful actuators use nested State classes:
 - `ActuatorPID.State` - Contains the integral term for PID control
 - `ActuatorDelayedPD.State` - Contains circular buffers for delayed targets
 - `ActuatorRemotizedPD.State` - Inherits `ActuatorDelayedPD.State` (same delay buffers)
+
+- `ActuatorNetMLP.State` - Contains position error and velocity history buffers
+- `ActuatorNetLSTM.State` - Contains LSTM hidden and cell state tensors
 
 ## Workflow
 
@@ -120,6 +147,27 @@ current_state, next_state = state_a, state_b
 for step in range(num_steps):
     pid_actuator.step(sim_state, sim_control, current_state, next_state, dt=0.01)
     current_state, next_state = next_state, current_state  # Swap buffers
+```
+
+### Non-Graphable Stateful Actuator (ActuatorNetLSTM)
+
+Network actuators (`ActuatorNetMLP`, `ActuatorNetLSTM`) are stateful but not
+CUDA-graphable due to Warp-PyTorch interop. Because their `step()` cannot be
+captured in a CUDA graph, double-buffering is not strictly required — you can
+pass the **same state object** as both `current_state` and `next_state` to
+simplify your code:
+
+```python
+# Simple: single state object (fine when not using CUDA graphs)
+state = lstm_actuator.state()
+for step in range(num_steps):
+    lstm_actuator.step(sim_state, sim_control, state, state, dt=0.01)
+```
+
+To reset state between episodes, call `state.reset()`:
+
+```python
+state.reset()
 ```
 
 ### DC Motor Actuator

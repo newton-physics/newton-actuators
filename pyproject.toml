@@ -21,11 +21,30 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["warp-lang>=1.11.0.dev20251205"]
 
+[project.optional-dependencies]
+torch-cu12 = ["torch>=2.7.0"]
+torch-cu13 = ["torch>=2.10.0"]
+
 [tool.hatch.version]
 path = "newton_actuators/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["newton_actuators"]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "torch-cu12" },
+        { extra = "torch-cu13" },
+    ],
+]
+
+[tool.uv.sources]
+warp-lang = { index = "nvidia" }
+torch = [
+    { index = "pytorch-cu128", extra = "torch-cu12" },
+    { index = "pytorch-cu130", extra = "torch-cu13" },
+]
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
@@ -35,15 +54,25 @@ name = "nvidia"
 url = "https://pypi.nvidia.com/"
 explicit = true
 
-[tool.uv.sources]
-warp-lang = { index = "nvidia" }
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.ruff]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "I", "F", "W", "B", "UP"]
+select = ["E", "I", "F", "W", "B", "UP", "TID253"]
 ignore = ["E501", "E741", "UP018", "F811"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+banned-module-level-imports = ["torch"]
 
 [tool.ruff.format]
 quote-style = "double"
