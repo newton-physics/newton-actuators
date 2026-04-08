@@ -7,7 +7,29 @@
 
 GPU-accelerated actuator library for physics simulations.
 
-This library provides a collection of actuator implementations that integrate with physics simulation pipelines. Actuators read from simulation state arrays and write computed forces/torques back to control arrays.
+This library provides composable actuator implementations that integrate with
+physics simulation pipelines. Actuators read from simulation state arrays and
+write computed forces/torques back to control arrays.
+
+## Architecture
+
+An actuator is composed from two building blocks:
+
+- **Controller** — computes raw forces from state error (PD, PID, neural network).
+- **Dynamics** — composable modifiers stacked on top of a controller (delay,
+  clamping, DC motor saturation, angle-dependent limits, …).
+
+The `Actuator` class wires them together:
+
+```
+Actuator
+├── Controller  (compute raw forces)
+└── Dynamics[]  (modify targets or forces, in order)
+    ├── Delay              (pre-controller: delays targets)
+    ├── Clamp              (post-controller: ±max_force)
+    ├── DCMotorSaturation   (post-controller: velocity-dependent)
+    └── RemotizedClamp     (post-controller: angle-dependent lookup)
+```
 
 ## Installation
 
@@ -22,10 +44,10 @@ cd newton-actuators
 pip install -e .
 ```
 
-### With PyTorch (for neural network actuators)
+### With PyTorch (for neural network controllers)
 
-The `ActuatorNetMLP` and `ActuatorNetLSTM` actuators require PyTorch. Install
-the extra matching your CUDA version:
+The `NetMLPController` and `NetLSTMController` require PyTorch. Install the
+extra matching your CUDA version:
 
 **Using uv** (index routing is automatic):
 
@@ -43,140 +65,162 @@ pip install "newton-actuators[torch-cu13]" --extra-index-url https://download.py
 
 ## API Reference
 
-### Actuator Classes
+### Controllers
 
-| Actuator | Description | Stateful | Transmission |
-|----------|-------------|----------|--------------|
-| `ActuatorPD` | Stateless PD controller | No | No |
-| `ActuatorPID` | PID controller with integral term | Yes | No |
-| `ActuatorDelayedPD` | PD controller with input delay | Yes | No |
-| `ActuatorDCMotor` | PD with DC motor velocity-dependent saturation | No | No |
-| `ActuatorRemotizedPD` | Delayed PD with angle-dependent torque limits | Yes | No |
-| `ActuatorNetMLP` | MLP network actuator with position/velocity history | Yes | No |
-| `ActuatorNetLSTM` | LSTM network actuator with recurrent hidden state | Yes | No |
+| Controller | Description | Stateful |
+|---|---|---|
+| `PDController` | Proportional-derivative controller | No |
+| `PIDController` | PID controller with anti-windup integral | Yes |
+| `NetMLPController` | MLP network with position/velocity history | Yes |
+| `NetLSTMController` | LSTM network with recurrent hidden state | Yes |
 
-#### Control Laws
+#### Force Laws
 
-- **ActuatorPD**: `τ = clamp(constant + act + Kp·(target_pos - q) + Kd·(target_vel - v), ±max_force)`
-- **ActuatorPID**: `τ = clamp(constant + act + Kp·(target_pos - q) + Ki·∫e·dt + Kd·(target_vel - v), ±max_force)`
-- **ActuatorDelayedPD**: Same as PD but with delayed targets (circular buffer)
-- **ActuatorDCMotor**: Same PD force computation, but torque is clamped to velocity-dependent bounds from the motor torque-speed curve: `τ_max(v) = clamp(τ_sat·(1 - v/v_max), 0, effort_limit)`, `τ_min(v) = clamp(τ_sat·(-1 - v/v_max), -effort_limit, 0)`, `τ = clamp(τ, τ_min(v), τ_max(v))`
-- **ActuatorRemotizedPD**: Same as DelayedPD, but torque limits are interpolated from an angle-dependent lookup table: `τ_limit = interp(q, lookup_table)`
-- **ActuatorNetMLP**: `τ = clamp(network(cat(pos_error_history * pos_scale, vel_history * vel_scale)) * torque_scale, ±max_force)` — history is maintained internally
-- **ActuatorNetLSTM**: `τ = clamp(network(input, (h, c)), ±max_force)` — hidden and cell state maintained internally
+- **PDController**: `f = constant + act + Kp·(target_pos - q) + Kd·(target_vel - v)`
+- **PIDController**: `f = constant + act + Kp·e + Ki·∫e·dt + Kd·de`
+- **NetMLPController**: `f = network(cat(pos_error_history, vel_history)) * torque_scale`
+- **NetLSTMController**: `f, (h', c') = network(input, (h, c))`
 
-### Base Class Methods
+### Dynamics
 
-All actuators inherit from `Actuator` and provide these methods:
+| Dynamic | Description | Type | Stateful |
+|---|---|---|---|
+| `Clamp` | Box-clamp to ±max_force | post-controller | No |
+| `DCMotorSaturation` | Velocity-dependent torque–speed saturation | post-controller | No |
+| `RemotizedClamp` | Angle-dependent torque limits via lookup table | post-controller | No |
+| `Delay` | Delays targets by N timesteps (circular buffer) | pre-controller | Yes |
 
-- `resolve_arguments(args) -> dict`: (classmethod) Resolve user-provided arguments with defaults
-- `is_stateful() -> bool`: Returns True if the actuator maintains internal state
-- `is_graphable() -> bool`: Returns True if `step()` can be captured in a CUDA graph (False for torch-based NN actuators)
-- `has_transmission() -> bool`: Returns True if the actuator has a transmission phase
-- `state() -> State | None`: Returns a new state instance (None for stateless actuators)
-- `step(sim_state, sim_control, current_state, next_state, dt)`: Execute one control step
+### Actuator (Composer)
 
-### State Classes
+`Actuator(input_indices, output_indices, controller, dynamics=[...])` composes
+a controller with zero or more dynamics. The `step()` method runs:
 
-Stateful actuators use nested State classes:
+1. **Pre-controller dynamics** — modify targets (e.g. `Delay`)
+2. **Controller** — compute raw forces
+3. **Post-controller dynamics** — modify forces (e.g. `Clamp`)
+4. **Scatter-add** — accumulate forces into the output array
+5. **State updates** — update all stateful components
 
-- `ActuatorPID.State` - Contains the integral term for PID control
-- `ActuatorDelayedPD.State` - Contains circular buffers for delayed targets
-- `ActuatorRemotizedPD.State` - Inherits `ActuatorDelayedPD.State` (same delay buffers)
+### Common Methods
 
-- `ActuatorNetMLP.State` - Contains position error and velocity history buffers
-- `ActuatorNetLSTM.State` - Contains LSTM hidden and cell state tensors
+- `actuator.is_stateful()` — True if any component maintains internal state
+- `actuator.is_graphable()` — True if `step()` can be captured in a CUDA graph
+- `actuator.state()` — return a new `ActuatorState` (None if stateless)
+- `actuator.step(sim_state, sim_control, current_state, next_state, dt)` — one control step
+- `state.reset()` — zero all internal buffers without reallocating
 
 ## Workflow
 
-1. **Create actuators** with appropriate parameters
-2. **Check statefulness**: Call `actuator.is_stateful()` to determine if state management is needed
-3. **Initialize states**: For stateful actuators, create double-buffered states with `actuator.state()`
-4. **Simulation loop**: Call `actuator.step()` to compute forces
-5. **Swap buffers**: For stateful actuators, swap state buffers after each step
-6. **Reset between episodes**: Call `state.reset()` on any stateful actuator's state to zero internal buffers without reallocating
+1. **Create an actuator** by composing a controller with dynamics
+2. **Check statefulness**: call `actuator.is_stateful()`
+3. **Initialize states**: for stateful actuators, create double-buffered states with `actuator.state()`
+4. **Simulation loop**: call `actuator.step()` each timestep
+5. **Swap buffers**: for stateful actuators, swap state buffers after each step
+6. **Reset between episodes**: call `state.reset()` to zero internal buffers
 
 ## Examples
 
-### Stateless Actuator (ActuatorPD)
+### Stateless: PD + Clamp
 
 ```python
 import warp as wp
-from newton_actuators import ActuatorPD
+from newton_actuators import Actuator, PDController, Clamp
 
-# Create a PD actuator for 3 DOFs
 indices = wp.array([0, 1, 2], dtype=wp.uint32)
-pd_actuator = ActuatorPD(
+actuator = Actuator(
     input_indices=indices,
     output_indices=indices,
-    kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
-    kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
-    max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32),
-    constant_force=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
+    controller=PDController(
+        kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
+        kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
+    ),
+    dynamics=[
+        Clamp(max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32)),
+    ],
 )
 
-# In simulation loop - stateless actuators don't need state management
-pd_actuator.step(sim_state, sim_control, None, None, dt=0.01)
+# Stateless — no state management needed
+actuator.step(sim_state, sim_control, None, None, dt=0.01)
 ```
 
-### Stateful Actuator (ActuatorPID)
+### Stateful: PID + Clamp
 
 ```python
-import warp as wp
-from newton_actuators import ActuatorPID
+from newton_actuators import PIDController
 
-indices = wp.array([0, 1], dtype=wp.uint32)
-pid_actuator = ActuatorPID(
+actuator = Actuator(
     input_indices=indices,
     output_indices=indices,
-    kp=wp.array([100.0, 100.0], dtype=wp.float32),
-    ki=wp.array([10.0, 10.0], dtype=wp.float32),
-    kd=wp.array([5.0, 5.0], dtype=wp.float32),
-    max_force=wp.array([50.0, 50.0], dtype=wp.float32),
-    integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
-    constant_force=wp.array([0.0, 0.0], dtype=wp.float32),
+    controller=PIDController(
+        kp=wp.array([100.0, 100.0], dtype=wp.float32),
+        ki=wp.array([10.0, 10.0], dtype=wp.float32),
+        kd=wp.array([5.0, 5.0], dtype=wp.float32),
+        integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
+    ),
+    dynamics=[
+        Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
+    ],
 )
 
-# Check if actuator needs state management
-if pid_actuator.is_stateful():
-    # Create double-buffered states
-    state_a = pid_actuator.state()
-    state_b = pid_actuator.state()
+state_a = actuator.state()
+state_b = actuator.state()
 
-# Simulation loop with state swapping
-current_state, next_state = state_a, state_b
+current, nxt = state_a, state_b
 for step in range(num_steps):
-    pid_actuator.step(sim_state, sim_control, current_state, next_state, dt=0.01)
-    current_state, next_state = next_state, current_state  # Swap buffers
+    actuator.step(sim_state, sim_control, current, nxt, dt=0.01)
+    current, nxt = nxt, current
 ```
 
-### Non-Graphable Stateful Actuator (ActuatorNetLSTM)
+### Composing: PD + Delay + DC Motor Saturation
 
-Network actuators (`ActuatorNetMLP`, `ActuatorNetLSTM`) are stateful but not
-CUDA-graphable due to Warp-PyTorch interop. Because their `step()` cannot be
-captured in a CUDA graph, double-buffering is not strictly required — you can
-pass the **same state object** as both `current_state` and `next_state`:
+The composer pattern lets you freely combine controllers and dynamics:
 
 ```python
-# Simple: single state object (fine when not using CUDA graphs)
-state = lstm_actuator.state()
+from newton_actuators import Delay, DCMotorSaturation
+
+actuator = Actuator(
+    input_indices=indices,
+    output_indices=indices,
+    controller=PDController(kp=kp, kd=kd),
+    dynamics=[
+        Delay(delay=5),
+        DCMotorSaturation(
+            saturation_effort=sat_effort,
+            velocity_limit=vel_limit,
+            max_force=max_force,
+        ),
+    ],
+)
+```
+
+### LSTM Controller
+
+```python
+from newton_actuators import NetLSTMController
+
+actuator = Actuator(
+    input_indices=indices,
+    output_indices=indices,
+    controller=NetLSTMController(network=my_lstm_model),
+    dynamics=[Clamp(max_force=max_force)],
+)
+
+state = actuator.state()
 for step in range(num_steps):
-    lstm_actuator.step(sim_state, sim_control, state, state, dt=0.01)
+    actuator.step(sim_state, sim_control, state, state, dt=0.01)
 ```
 
 ## USD Parsing
 
-The library includes utilities for parsing actuator definitions from USD files:
-
 ```python
 from newton_actuators import parse_actuator_prim
 
-# Parse a USD prim with actuator attributes
 result = parse_actuator_prim(prim)
 if result is not None:
-    actuator_class = result.actuator_class  # e.g., ActuatorPD
-    target_paths = result.target_paths      # e.g., ["/World/Robot/Joint1"]
-    kwargs = result.kwargs                   # e.g., {"kp": 100.0, "kd": 10.0}
+    controller_cls = result.controller_class   # e.g. PDController
+    ctrl_kwargs = result.controller_kwargs     # e.g. {"kp": 100.0}
+    dynamics_specs = result.dynamics_specs     # e.g. [(Delay, {"delay": 5}), ...]
+    target_paths = result.target_paths         # e.g. ["/World/Robot/Joint1"]
 ```
 
 ## License

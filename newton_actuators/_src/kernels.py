@@ -28,8 +28,13 @@ def _interp_1d(
     return ys[n - 1]
 
 
+# ---------------------------------------------------------------------------
+# Force-computation kernels (no clamping — write, not accumulate)
+# ---------------------------------------------------------------------------
+
+
 @wp.kernel
-def pd_controller_kernel(
+def pd_force_kernel(
     current_pos: wp.array(dtype=float),
     current_vel: wp.array(dtype=float),
     target_pos: wp.array(dtype=float),
@@ -37,35 +42,17 @@ def pd_controller_kernel(
     control_input: wp.array(dtype=float),
     state_indices: wp.array(dtype=wp.uint32),
     target_indices: wp.array(dtype=wp.uint32),
-    output_indices: wp.array(dtype=wp.uint32),
+    force_indices: wp.array(dtype=wp.uint32),
     kp: wp.array(dtype=float),
     kd: wp.array(dtype=float),
-    max_force: wp.array(dtype=float),
     constant_force: wp.array(dtype=float),
-    # Optional DC motor velocity-dependent saturation (pass None to skip):
-    saturation_effort: wp.array(dtype=float),
-    velocity_limit: wp.array(dtype=float),
-    # Optional angle-dependent torque lookup (pass None/0 to skip):
-    lookup_angles: wp.array(dtype=float),
-    lookup_torques: wp.array(dtype=float),
-    lookup_size: int,
-    output: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
 ):
-    """Unified PD controller with optional DC motor saturation and angle-dependent limits.
-
-    Force: f = constant + act + kp*(target_pos - q) + kd*(target_vel - v)
-
-    Clipping (in priority order):
-        - DC motor:  velocity-dependent τ_min/τ_max from saturation_effort and velocity_limit
-        - Lookup:    angle-dependent ±limit interpolated from lookup table
-        - Box:       ±max_force (fallback)
-
-    Result is added to output.
-    """
+    """PD force: f = constant + act + kp*(target_pos - q) + kd*(target_vel - v). Writes to forces."""
     i = wp.tid()
     state_idx = state_indices[i]
     target_idx = target_indices[i]
-    out_idx = output_indices[i]
+    force_idx = force_indices[i]
 
     position_error = target_pos[target_idx] - current_pos[state_idx]
     velocity_error = target_vel[target_idx] - current_vel[state_idx]
@@ -79,40 +66,11 @@ def pd_controller_kernel(
         act = control_input[target_idx]
 
     force = const_f + act + kp[i] * position_error + kd[i] * velocity_error
-
-    if saturation_effort:
-        vel = current_vel[state_idx]
-        sat = saturation_effort[i]
-        vel_lim = velocity_limit[i]
-        max_f = max_force[i]
-        max_torque = wp.clamp(sat * (1.0 - vel / vel_lim), 0.0, max_f)
-        min_torque = wp.clamp(sat * (-1.0 - vel / vel_lim), -max_f, 0.0)
-        force = wp.clamp(force, min_torque, max_torque)
-    elif lookup_size > 0:
-        torque_limit = _interp_1d(current_pos[state_idx], lookup_angles, lookup_torques, lookup_size)
-        force = wp.clamp(force, -torque_limit, torque_limit)
-    else:
-        force = wp.clamp(force, -max_force[i], max_force[i])
-
-    output[out_idx] = output[out_idx] + force
+    forces[force_idx] = force
 
 
 @wp.kernel
-def nn_output_kernel(
-    nn_torques: wp.array(dtype=float),
-    max_force: wp.array(dtype=float),
-    output_indices: wp.array(dtype=wp.uint32),
-    output: wp.array(dtype=float),
-):
-    """Clamp neural-network output torques to ±max_force and add to controller output."""
-    i = wp.tid()
-    out_idx = output_indices[i]
-    force = wp.clamp(nn_torques[i], -max_force[i], max_force[i])
-    output[out_idx] = output[out_idx] + force
-
-
-@wp.kernel
-def pid_controller_kernel(
+def pid_force_kernel(
     current_pos: wp.array(dtype=float),
     current_vel: wp.array(dtype=float),
     target_pos: wp.array(dtype=float),
@@ -120,22 +78,21 @@ def pid_controller_kernel(
     control_input: wp.array(dtype=float),
     state_indices: wp.array(dtype=wp.uint32),
     target_indices: wp.array(dtype=wp.uint32),
-    output_indices: wp.array(dtype=wp.uint32),
+    force_indices: wp.array(dtype=wp.uint32),
     kp: wp.array(dtype=float),
     ki: wp.array(dtype=float),
     kd: wp.array(dtype=float),
-    max_force: wp.array(dtype=float),
     integral_max: wp.array(dtype=float),
     constant_force: wp.array(dtype=float),
     dt: float,
     current_integral: wp.array(dtype=float),
-    output: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
 ):
-    """PID control with anti-windup: f = clamp(constant + act + kp*(target_pos - q) + ki*integral + kd*(target_vel - v), ±max_force). Adds to output."""
+    """PID force: f = constant + act + kp*e + ki*integral + kd*de. Writes to forces."""
     i = wp.tid()
     state_idx = state_indices[i]
     target_idx = target_indices[i]
-    out_idx = output_indices[i]
+    force_idx = force_indices[i]
 
     position_error = target_pos[target_idx] - current_pos[state_idx]
     velocity_error = target_vel[target_idx] - current_vel[state_idx]
@@ -152,9 +109,86 @@ def pid_controller_kernel(
         act = control_input[target_idx]
 
     force = const_f + act + kp[i] * position_error + ki[i] * integral + kd[i] * velocity_error
-    force = wp.clamp(force, -max_force[i], max_force[i])
+    forces[force_idx] = force
 
-    output[out_idx] = output[out_idx] + force
+
+# ---------------------------------------------------------------------------
+# Clamping kernels (in-place modification of forces buffer)
+# ---------------------------------------------------------------------------
+
+
+@wp.kernel
+def box_clamp_kernel(
+    max_force: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
+):
+    """Clamp forces to ±max_force in-place."""
+    i = wp.tid()
+    forces[i] = wp.clamp(forces[i], -max_force[i], max_force[i])
+
+
+@wp.kernel
+def dc_motor_clamp_kernel(
+    current_vel: wp.array(dtype=float),
+    state_indices: wp.array(dtype=wp.uint32),
+    saturation_effort: wp.array(dtype=float),
+    velocity_limit: wp.array(dtype=float),
+    max_force: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
+):
+    """DC motor velocity-dependent saturation clamp in-place.
+
+    τ_max(v) = clamp(τ_sat*(1 - v/v_max),  0,  max_force)
+    τ_min(v) = clamp(τ_sat*(-1 - v/v_max), -max_force, 0)
+    """
+    i = wp.tid()
+    state_idx = state_indices[i]
+    vel = current_vel[state_idx]
+    sat = saturation_effort[i]
+    vel_lim = velocity_limit[i]
+    max_f = max_force[i]
+
+    max_torque = wp.clamp(sat * (1.0 - vel / vel_lim), 0.0, max_f)
+    min_torque = wp.clamp(sat * (-1.0 - vel / vel_lim), -max_f, 0.0)
+    forces[i] = wp.clamp(forces[i], min_torque, max_torque)
+
+
+@wp.kernel
+def remotized_clamp_kernel(
+    current_pos: wp.array(dtype=float),
+    state_indices: wp.array(dtype=wp.uint32),
+    lookup_angles: wp.array(dtype=float),
+    lookup_torques: wp.array(dtype=float),
+    lookup_size: int,
+    forces: wp.array(dtype=float),
+):
+    """Angle-dependent clamping via interpolated lookup table, in-place."""
+    i = wp.tid()
+    state_idx = state_indices[i]
+    limit = _interp_1d(current_pos[state_idx], lookup_angles, lookup_torques, lookup_size)
+    forces[i] = wp.clamp(forces[i], -limit, limit)
+
+
+# ---------------------------------------------------------------------------
+# Output kernel
+# ---------------------------------------------------------------------------
+
+
+@wp.kernel
+def scatter_add_kernel(
+    forces: wp.array(dtype=float),
+    output_indices: wp.array(dtype=wp.uint32),
+    output: wp.array(dtype=float),
+):
+    """Accumulate forces into output at specified indices."""
+    i = wp.tid()
+    out_idx = output_indices[i]
+    output[out_idx] = output[out_idx] + forces[i]
+
+
+# ---------------------------------------------------------------------------
+# State-update kernels
+# ---------------------------------------------------------------------------
 
 
 @wp.kernel

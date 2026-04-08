@@ -6,16 +6,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .actuators import ActuatorDCMotor, ActuatorDelayedPD, ActuatorPD, ActuatorPID
+from .controllers import PDController, PIDController
+from .dynamics import Clamp, DCMotorSaturation, Delay
 
 
 @dataclass
 class ParsedActuator:
-    """Result of parsing a USD actuator prim."""
+    """Result of parsing a USD actuator prim.
 
-    actuator_class: type
-    target_paths: list[str]
-    kwargs: dict[str, Any] = field(default_factory=dict)
+    Contains the controller class, dynamics classes, and their respective
+    kwargs so that the caller can construct an ``Actuator`` by composing them.
+    """
+
+    controller_class: type
+    controller_kwargs: dict[str, Any] = field(default_factory=dict)
+    dynamics_specs: list[tuple[type, dict[str, Any]]] = field(default_factory=list)
+    target_paths: list[str] = field(default_factory=list)
     transmission: list[float] | None = None
 
 
@@ -23,16 +29,17 @@ API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
     "PDControllerAPI": {
         "kp": "kp",
         "kd": "kd",
-        "maxForce": "max_force",
         "constForce": "constant_force",
     },
     "PIDControllerAPI": {
         "kp": "kp",
         "ki": "ki",
         "kd": "kd",
-        "maxForce": "max_force",
         "integralMax": "integral_max",
         "constForce": "constant_force",
+    },
+    "ClampAPI": {
+        "maxForce": "max_force",
     },
     "DelayAPI": {
         "delay": "delay",
@@ -40,6 +47,7 @@ API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
     "DCMotorAPI": {
         "saturationEffort": "saturation_effort",
         "velocityLimit": "velocity_limit",
+        "maxForce": "max_force",
     },
 }
 
@@ -79,6 +87,8 @@ def infer_schemas_from_prim(prim) -> list[str]:
         schemas.append("PIDControllerAPI")
     elif "kp" in attr_names or "kd" in attr_names:
         schemas.append("PDControllerAPI")
+    if "maxForce" in attr_names:
+        schemas.append("ClampAPI")
     if "delay" in attr_names:
         schemas.append("DelayAPI")
     if "saturationEffort" in attr_names and "velocityLimit" in attr_names:
@@ -87,23 +97,24 @@ def infer_schemas_from_prim(prim) -> list[str]:
     return schemas
 
 
-def determine_actuator_class(schemas: list[str]) -> type:
-    """Determine actuator class from inferred schemas."""
-    has_delay = "DelayAPI" in schemas
+def determine_controller_and_dynamics(schemas: list[str]) -> tuple[type, list[type]]:
+    """Determine controller class and dynamics classes from inferred schemas."""
     has_pid = "PIDControllerAPI" in schemas
-    has_pd = "PDControllerAPI" in schemas
+    has_delay = "DelayAPI" in schemas
     has_dc_motor = "DCMotorAPI" in schemas
+    has_clamp = "ClampAPI" in schemas
 
-    if has_dc_motor and has_pd:
-        return ActuatorDCMotor
-    elif has_delay and has_pd:
-        return ActuatorDelayedPD
-    elif has_pid:
-        return ActuatorPID
-    elif has_pd:
-        return ActuatorPD
-    else:
-        return ActuatorPD
+    controller_cls = PIDController if has_pid else PDController
+
+    dynamics_classes: list[type] = []
+    if has_delay:
+        dynamics_classes.append(Delay)
+    if has_dc_motor:
+        dynamics_classes.append(DCMotorSaturation)
+    elif has_clamp:
+        dynamics_classes.append(Clamp)
+
+    return controller_cls, dynamics_classes
 
 
 def validate_kwargs(schemas: list[str], kwargs: dict[str, Any]) -> None:
@@ -118,8 +129,8 @@ def validate_kwargs(schemas: list[str], kwargs: dict[str, Any]) -> None:
 
 
 def extract_kwargs_from_prim(prim, schemas: list[str]) -> dict[str, Any]:
-    """Extract actuator parameters from prim attributes using newton:actuator:{attr} format."""
-    kwargs = {}
+    """Extract actuator parameters from prim attributes."""
+    kwargs: dict[str, Any] = {}
     for schema_name in schemas:
         if schema_name not in API_SCHEMA_HANDLERS:
             continue
@@ -132,8 +143,32 @@ def extract_kwargs_from_prim(prim, schemas: list[str]) -> dict[str, Any]:
     return kwargs
 
 
+def _split_kwargs(
+    kwargs: dict[str, Any],
+    controller_cls: type,
+    dynamics_classes: list[type],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Split flat kwargs into controller kwargs and per-dynamic kwargs."""
+    ctrl_keys = set(controller_cls.resolve_arguments({}).keys())
+    ctrl_kwargs = {k: v for k, v in kwargs.items() if k in ctrl_keys}
+
+    dynamics_kwargs_list = []
+    for dyn_cls in dynamics_classes:
+        try:
+            dyn_defaults = dyn_cls.resolve_arguments(kwargs)
+        except (ValueError, KeyError):
+            dyn_defaults = {}
+        dyn_kwargs = {k: v for k, v in kwargs.items() if k in dyn_defaults}
+        dynamics_kwargs_list.append(dyn_kwargs)
+
+    return ctrl_kwargs, dynamics_kwargs_list
+
+
 def parse_actuator_prim(prim) -> ParsedActuator | None:
-    """Parse a USD Actuator prim. Returns None if not a valid actuator."""
+    """Parse a USD Actuator prim into a composed actuator specification.
+
+    Returns None if not a valid actuator prim.
+    """
     if prim.GetTypeName() != "Actuator":
         return None
 
@@ -142,12 +177,18 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
         return None
 
     schemas = infer_schemas_from_prim(prim)
-
+    all_kwargs = extract_kwargs_from_prim(prim, schemas)
     transmission = get_attribute(prim, "newton:actuator:transmission")
 
+    controller_cls, dynamics_classes = determine_controller_and_dynamics(schemas)
+    ctrl_kwargs, dynamics_kwargs_list = _split_kwargs(all_kwargs, controller_cls, dynamics_classes)
+
+    dynamics_specs = list(zip(dynamics_classes, dynamics_kwargs_list))
+
     return ParsedActuator(
-        actuator_class=determine_actuator_class(schemas),
+        controller_class=controller_cls,
+        controller_kwargs=ctrl_kwargs,
+        dynamics_specs=dynamics_specs,
         target_paths=target_paths,
-        kwargs=extract_kwargs_from_prim(prim, schemas),
         transmission=list(transmission) if transmission else None,
     )
