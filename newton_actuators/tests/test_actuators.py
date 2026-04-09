@@ -1071,7 +1071,7 @@ class TestNetMLPController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetMLPController(network=network, torque_scale=1.0),
+            controller=NetMLPController(network=network),
             dynamics=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
         )
 
@@ -1093,8 +1093,9 @@ class TestNetMLPController(unittest.TestCase):
         force = sim_control.joint_f.numpy()[0]
         self.assertAlmostEqual(force, max_force_val, places=3)
 
-    def test_torque_scale(self):
-        from newton_actuators import Clamp, NetMLPController
+    def test_raw_output(self):
+        """Network output is passed through without scaling."""
+        from newton_actuators import NetMLPController
 
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
 
@@ -1106,8 +1107,7 @@ class TestNetMLPController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetMLPController(network=network, torque_scale=3.0),
-            dynamics=[Clamp(max_force=wp.array([1000.0], dtype=wp.float32, device=self.wp_device))],
+            controller=NetMLPController(network=network),
         )
 
         stateA = actuator.state()
@@ -1126,7 +1126,7 @@ class TestNetMLPController(unittest.TestCase):
 
         actuator.step(sim_state, sim_control, stateA, stateB)
         force = sim_control.joint_f.numpy()[0]
-        self.assertAlmostEqual(force, 15.0, places=3)
+        self.assertAlmostEqual(force, 5.0, places=3)
 
     def test_history_persistence(self):
         from newton_actuators import NetMLPController

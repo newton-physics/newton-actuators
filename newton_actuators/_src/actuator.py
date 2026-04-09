@@ -188,7 +188,7 @@ class Actuator:
         3. **Dynamics** — modify forces and scatter-add to output.
         4. **State updates** — update delay buffer and controller state.
 
-        If the delay buffer is still filling, steps 2–3 are skipped
+        If the delay buffer is still filling, steps 2-3 are skipped
         (no forces produced) but the buffer keeps accumulating.
 
         Args:

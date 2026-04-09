@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
-import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,12 +16,8 @@ class NetMLPController(Controller):
     and velocity history. Produces raw (unclamped) forces — pair with
     ``Clamp`` for force limiting.
 
-    Input preparation (per actuator):
-        pos_input = [pos_error[t] for t in input_idx] * pos_scale
-        vel_input = [velocity[t]  for t in input_idx] * vel_scale
-        network_input = cat(pos_input, vel_input)   # or vel, pos if input_order="vel_pos"
-
-    Output: torque = network(input) * torque_scale
+    The network receives concatenated position-error and velocity history
+    as input and is expected to return torques in physical units.  Scaling is left to the user.
     """
 
     SHARED_PARAMS = {"network_path"}
@@ -44,18 +39,12 @@ class NetMLPController(Controller):
             raise ValueError("NetMLPController requires 'network_path' argument")
         return {
             "network_path": args["network_path"],
-            "pos_scale": args.get("pos_scale", 1.0),
-            "vel_scale": args.get("vel_scale", 1.0),
-            "torque_scale": args.get("torque_scale", 1.0),
             "input_order": args.get("input_order", "pos_vel"),
             "input_idx": args.get("input_idx", None),
         }
 
     def __init__(
         self,
-        pos_scale: float = 1.0,
-        vel_scale: float = 1.0,
-        torque_scale: float = 1.0,
         input_order: str = "pos_vel",
         input_idx: list[int] | None = None,
         network: Any = None,
@@ -64,9 +53,6 @@ class NetMLPController(Controller):
         """Initialize MLP controller.
 
         Args:
-            pos_scale: Scaling factor for position error inputs.
-            vel_scale: Scaling factor for velocity inputs.
-            torque_scale: Scaling factor for network output torques.
             input_order: Concatenation order, "pos_vel" or "vel_pos".
             input_idx: History timestep indices to feed the network. 0 = current,
                 1 = one step ago, etc. Default [0].
@@ -75,9 +61,6 @@ class NetMLPController(Controller):
         """
         import torch
 
-        self.pos_scale = pos_scale
-        self.vel_scale = vel_scale
-        self.torque_scale = torque_scale
         if input_order not in ("pos_vel", "vel_pos"):
             raise ValueError(f"input_order must be 'pos_vel' or 'vel_pos'; got '{input_order}'")
         self.input_order = input_order
@@ -166,14 +149,14 @@ class NetMLPController(Controller):
         vel_input = torch.stack([state.vel_history[i] for i in self.input_idx], dim=1)
 
         if self.input_order == "pos_vel":
-            net_input = torch.cat([pos_input * self.pos_scale, vel_input * self.vel_scale], dim=1)
+            net_input = torch.cat([pos_input, vel_input], dim=1)
         else:
-            net_input = torch.cat([vel_input * self.vel_scale, pos_input * self.pos_scale], dim=1)
+            net_input = torch.cat([vel_input, pos_input], dim=1)
 
         with torch.inference_mode():
             torques = self.network(net_input)
 
-        torques = torques.reshape(num_actuators) * self.torque_scale
+        torques = torques.reshape(num_actuators)
         torques_wp = wp.from_torch(torques.contiguous(), dtype=wp.float32)
         wp.copy(forces, torques_wp)
 

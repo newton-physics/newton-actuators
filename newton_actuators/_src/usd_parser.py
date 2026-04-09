@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .controllers import PDController, PIDController
+from .controllers import NetLSTMController, NetMLPController, PDController, PIDController
 from .delay import Delay
 from .dynamics import Clamp, DCMotorSaturation
 
@@ -54,6 +54,17 @@ SCHEMA_REGISTRY: dict[str, SchemaEntry] = {
         component_class=DCMotorSaturation,
         param_map={"saturationEffort": "saturation_effort", "velocityLimit": "velocity_limit", "maxForce": "max_force"},
         validate=_validate_dc_motor,
+    ),
+    # Neural-network controllers
+    "NetMLPControllerAPI": SchemaEntry(
+        component_class=NetMLPController,
+        param_map={"networkPath": "network_path"},
+        is_controller=True,
+    ),
+    "NetLSTMControllerAPI": SchemaEntry(
+        component_class=NetLSTMController,
+        param_map={"networkPath": "network_path"},
+        is_controller=True,
     ),
 }
 
