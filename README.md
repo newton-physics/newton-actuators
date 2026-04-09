@@ -182,8 +182,8 @@ actuator = Actuator(
     input_indices=indices,
     output_indices=indices,
     controller=PDController(kp=kp, kd=kd),
+    delay=Delay(delay=5),
     dynamics=[
-        Delay(delay=5),
         DCMotorSaturation(
             saturation_effort=sat_effort,
             velocity_limit=vel_limit,

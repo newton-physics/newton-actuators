@@ -20,7 +20,7 @@ class Delay:
     dynamics list).
     """
 
-    SCALAR_PARAMS = {"delay"}
+    SHARED_PARAMS = {"delay"}
 
     @dataclass
     class State:
@@ -54,7 +54,7 @@ class Delay:
         self.delay = delay
         self._sequential_indices: wp.array | None = None
 
-    def bind(self, num_actuators: int, sequential_indices: wp.array, device: wp.Device) -> None:
+    def set_indices(self, num_actuators: int, sequential_indices: wp.array) -> None:
         self._sequential_indices = sequential_indices
 
     def state(self, num_actuators: int, device: wp.Device) -> "Delay.State":

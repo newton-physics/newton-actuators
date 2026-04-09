@@ -25,7 +25,7 @@ class NetMLPController(Controller):
     Output: torque = network(input) * torque_scale
     """
 
-    SCALAR_PARAMS = {"network_path"}
+    SHARED_PARAMS = {"network_path"}
 
     @dataclass
     class State:
@@ -60,6 +60,7 @@ class NetMLPController(Controller):
         input_idx: list[int] | None = None,
         network: Any = None,
         network_path: str | None = None,
+        device: wp.Device | str | None = None,
     ):
         """Initialize MLP controller.
 
@@ -72,6 +73,8 @@ class NetMLPController(Controller):
                 1 = one step ago, etc. Default [0].
             network: Pre-trained network (torch.nn.Module). If None, loaded from network_path.
             network_path: Path to a TorchScript model file.
+            device: Warp device or device string (e.g. "cuda:0"). Required when
+                using network_path; inferred from network parameters when omitted.
         """
         import torch
 
@@ -87,29 +90,33 @@ class NetMLPController(Controller):
         self.history_length = max(self.input_idx) + 1
 
         self.network_path = network_path
-        self._raw_network = network
-        self._raw_network_path = network_path
 
-        self._torch_device: torch.device | None = None
+        if device is not None:
+            wp_device = wp.get_device(device)
+            self._torch_device = torch.device(f"cuda:{wp_device.ordinal}" if wp_device.is_cuda else "cpu")
+        elif network is not None:
+            params = list(network.parameters())
+            self._torch_device = params[0].device if params else torch.device("cpu")
+        else:
+            self._torch_device = torch.device("cpu")
+
+        if network is not None:
+            self.network = network.to(self._torch_device).eval()
+        elif network_path is not None:
+            self.network = torch.jit.load(network_path, map_location=self._torch_device).eval()
+        else:
+            raise ValueError("Either 'network' or 'network_path' must be provided")
+
         self._torch_input_indices: Any = None
         self._torch_sequential_indices: Any = None
         self._warp_sequential_indices: wp.array | None = None
-        self.network: Any = None
 
-    def bind(self, input_indices: wp.array, sequential_indices: wp.array, device: wp.Device) -> None:
+    def set_indices(self, input_indices: wp.array, sequential_indices: wp.array) -> None:
         import torch
 
-        self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
         self._torch_input_indices = torch.tensor(input_indices.numpy(), dtype=torch.long, device=self._torch_device)
         self._torch_sequential_indices = torch.arange(len(input_indices), dtype=torch.long, device=self._torch_device)
         self._warp_sequential_indices = sequential_indices
-
-        if self._raw_network is not None:
-            self.network = self._raw_network.to(self._torch_device).eval()
-        elif self._raw_network_path is not None:
-            self.network = torch.jit.load(self._raw_network_path, map_location=self._torch_device).eval()
-        else:
-            raise ValueError("Either 'network' or 'network_path' must be provided")
 
     def is_stateful(self) -> bool:
         return True
@@ -120,12 +127,9 @@ class NetMLPController(Controller):
     def state(self, num_actuators: int, device: wp.Device) -> "NetMLPController.State":
         import torch
 
-        torch_device = self._torch_device
-        if torch_device is None:
-            torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
         return NetMLPController.State(
-            pos_error_history=torch.zeros(self.history_length, num_actuators, device=torch_device),
-            vel_history=torch.zeros(self.history_length, num_actuators, device=torch_device),
+            pos_error_history=torch.zeros(self.history_length, num_actuators, device=self._torch_device),
+            vel_history=torch.zeros(self.history_length, num_actuators, device=self._torch_device),
         )
 
     def compute(

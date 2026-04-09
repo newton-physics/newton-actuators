@@ -1209,7 +1209,7 @@ class TestNetLSTMController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetLSTMController(network=network),
+            controller=NetLSTMController(network=network, device=self.wp_device),
             dynamics=[Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
         )
         self.assertIsInstance(actuator, Actuator)
@@ -1227,7 +1227,7 @@ class TestNetLSTMController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetLSTMController(network=network),
+            controller=NetLSTMController(network=network, device=self.wp_device),
         )
 
         state = actuator.state()
@@ -1245,7 +1245,7 @@ class TestNetLSTMController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetLSTMController(network=network),
+            controller=NetLSTMController(network=network, device=self.wp_device),
             dynamics=[Clamp(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
         )
 
@@ -1281,7 +1281,7 @@ class TestNetLSTMController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetLSTMController(network=network),
+            controller=NetLSTMController(network=network, device=self.wp_device),
             dynamics=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
         )
 
@@ -1312,7 +1312,7 @@ class TestNetLSTMController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetLSTMController(network=network),
+            controller=NetLSTMController(network=network, device=self.wp_device),
         )
 
         stateA = actuator.state()
@@ -1346,7 +1346,7 @@ class TestNetLSTMController(unittest.TestCase):
         actuator = Actuator(
             input_indices=indices,
             output_indices=indices,
-            controller=NetLSTMController(network=network),
+            controller=NetLSTMController(network=network, device=self.wp_device),
         )
 
         stateA = actuator.state()

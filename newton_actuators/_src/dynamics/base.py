@@ -17,11 +17,11 @@ class Dynamic:
     Actuator, not as a Dynamic).
 
     Class Attributes:
-        SCALAR_PARAMS: Parameter names that are instance-level (shared across
+        SHARED_PARAMS: Parameter names that are instance-level (shared across
             all DOFs). Different values require separate actuator instances.
     """
 
-    SCALAR_PARAMS: set[str] = set()
+    SHARED_PARAMS: set[str] = set()
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:

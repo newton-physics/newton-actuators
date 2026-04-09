@@ -21,7 +21,7 @@ class RemotizedClamp(Dynamic):
     This is a post-controller dynamic.
     """
 
-    SCALAR_PARAMS = {"lookup_angles", "lookup_torques"}
+    SHARED_PARAMS = {"lookup_angles", "lookup_torques"}
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:

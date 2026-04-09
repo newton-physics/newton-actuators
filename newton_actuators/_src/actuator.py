@@ -113,18 +113,18 @@ class Actuator:
         )
         self._forces = wp.zeros(self.num_actuators, dtype=wp.float32, device=device)
 
-        controller.bind(input_indices, self._sequential_indices, device)
+        controller.set_indices(input_indices, self._sequential_indices)
         if self.delay is not None:
-            self.delay.bind(self.num_actuators, self._sequential_indices, device)
+            self.delay.set_indices(self.num_actuators, self._sequential_indices)
 
     @property
-    def SCALAR_PARAMS(self) -> set[str]:
+    def SHARED_PARAMS(self) -> set[str]:
         params: set[str] = set()
-        params |= self.controller.SCALAR_PARAMS
+        params |= self.controller.SHARED_PARAMS
         if self.delay is not None:
-            params |= self.delay.SCALAR_PARAMS
+            params |= self.delay.SHARED_PARAMS
         for d in self.dynamics:
-            params |= d.SCALAR_PARAMS
+            params |= d.SHARED_PARAMS
         return params
 
     def is_stateful(self) -> bool:
@@ -163,12 +163,13 @@ class Actuator:
     ) -> None:
         """Execute one control step.
 
-        1. If delay is present, swap targets with delayed versions
-           (or skip the step if the delay buffer is not yet filled).
-        2. Run controller (compute raw forces).
-        3. Apply dynamics (modify forces).
-        4. Scatter-add forces to output.
-        5. Update delay / controller state.
+        1. **Delay** — read delayed targets from buffer.
+        2. **Controller** — compute raw forces.
+        3. **Dynamics** — modify forces and scatter-add to output.
+        4. **State updates** — update delay buffer and controller state.
+
+        If the delay buffer is still filling, steps 2–3 are skipped
+        (no forces produced) but the buffer keeps accumulating.
 
         Args:
             sim_state: Simulation state with position/velocity arrays.
@@ -177,6 +178,8 @@ class Actuator:
             next_act_state: Next composed state (None if stateless).
             dt: Timestep in seconds.
         """
+        has_states = current_act_state is not None and next_act_state is not None
+
         positions = getattr(sim_state, self.state_pos_attr)
         velocities = getattr(sim_state, self.state_vel_attr)
 
@@ -191,10 +194,11 @@ class Actuator:
         act_input = orig_act_input
         target_indices = self.input_indices
 
-        # --- Delay (pre-controller) ---
+        # --- 1. Delay: read delayed targets ---
         skip_compute = False
         if self.delay is not None:
             delay_state = current_act_state.delay_state if current_act_state else None
+
             if self.delay.is_ready(delay_state):
                 target_pos, target_vel, act_input, target_indices = (
                     self.delay.get_delayed_targets(act_input, delay_state)
@@ -203,7 +207,7 @@ class Actuator:
                 skip_compute = True
 
         if not skip_compute:
-            # --- Controller ---
+            # --- 2. Controller: compute forces ---
             ctrl_state = current_act_state.controller_state if current_act_state else None
             self.controller.compute(
                 positions,
@@ -220,14 +224,13 @@ class Actuator:
                 dt,
             )
 
-            # --- Post-controller dynamics ---
+            # --- 3. Dynamics: modify forces + write output ---
             for dyn in self.dynamics:
                 dyn.modify_forces(
                     self._forces, positions, velocities,
                     self.input_indices, self.num_actuators,
                 )
 
-            # --- Scatter-add to output ---
             output = getattr(sim_control, self.control_output_attr)
             wp.launch(
                 kernel=scatter_add_kernel,
@@ -236,8 +239,8 @@ class Actuator:
                 outputs=[output],
             )
 
-        # --- State updates ---
-        if self.is_stateful() and current_act_state is not None and next_act_state is not None:
+        # --- 4. State updates ---
+        if has_states:
             if self.controller.is_stateful() and not skip_compute:
                 self.controller.update_state(
                     positions, velocities,

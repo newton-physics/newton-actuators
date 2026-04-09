@@ -17,11 +17,11 @@ class Controller:
     Subclasses must override ``compute`` and ``resolve_arguments``.
 
     Class Attributes:
-        SCALAR_PARAMS: Parameter names that are instance-level (shared across
+        SHARED_PARAMS: Parameter names that are instance-level (shared across
             all DOFs). Different values require separate actuator instances.
     """
 
-    SCALAR_PARAMS: set[str] = set()
+    SHARED_PARAMS: set[str] = set()
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
@@ -35,16 +35,16 @@ class Controller:
         """
         raise NotImplementedError(f"{cls.__name__} must implement resolve_arguments")
 
-    def bind(self, input_indices: wp.array, sequential_indices: wp.array, device: wp.Device) -> None:
-        """Called by Actuator to provide index and device info.
+    def set_indices(self, input_indices: wp.array, sequential_indices: wp.array) -> None:
+        """Called by Actuator to provide DOF index arrays.
 
-        Override in subclasses that need to pre-compute device-specific
-        resources (e.g. torch index tensors for neural-network controllers).
+        Override in subclasses that need to pre-compute index tensors
+        (e.g. torch index tensors for neural-network controllers).
 
         Args:
-            input_indices: DOF indices for reading state. Shape (N,).
+            input_indices: DOF indices for reading state. Shape (N,)
+                for single-input or (N, M) for multi-input actuators.
             sequential_indices: Sequential indices [0..N). Shape (N,).
-            device: Warp device.
         """
         pass
 

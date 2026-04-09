@@ -26,7 +26,7 @@ class NetLSTMController(Controller):
     that num_layers and hidden_size can be inferred automatically.
     """
 
-    SCALAR_PARAMS = {"network_path"}
+    SHARED_PARAMS = {"network_path"}
 
     @dataclass
     class State:
@@ -51,6 +51,7 @@ class NetLSTMController(Controller):
         self,
         network: Any = None,
         network_path: str | None = None,
+        device: wp.Device | str | None = None,
     ):
         """Initialize LSTM controller.
 
@@ -58,33 +59,26 @@ class NetLSTMController(Controller):
             network: Pre-trained LSTM network (torch.nn.Module).
                 If None, loaded from network_path.
             network_path: Path to a TorchScript model file.
+            device: Warp device or device string (e.g. "cuda:0"). Required when
+                using network_path; inferred from network parameters when omitted.
         """
-        self.network_path = network_path
-        self._raw_network = network
-        self._raw_network_path = network_path
-
-        self._torch_device: Any = None
-        self._torch_input_indices: Any = None
-        self._torch_sequential_indices: Any = None
-        self._warp_sequential_indices: wp.array | None = None
-        self._num_layers: int = 0
-        self._hidden_size: int = 0
-        self.network: Any = None
-        self._hidden: Any = None
-        self._cell: Any = None
-
-    def bind(self, input_indices: wp.array, sequential_indices: wp.array, device: wp.Device) -> None:
         import torch
 
-        self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
-        self._torch_input_indices = torch.tensor(input_indices.numpy(), dtype=torch.long, device=self._torch_device)
-        self._torch_sequential_indices = torch.arange(len(input_indices), dtype=torch.long, device=self._torch_device)
-        self._warp_sequential_indices = sequential_indices
+        self.network_path = network_path
 
-        if self._raw_network is not None:
-            self.network = self._raw_network.to(self._torch_device).eval()
-        elif self._raw_network_path is not None:
-            self.network = torch.jit.load(self._raw_network_path, map_location=self._torch_device).eval()
+        if device is not None:
+            wp_device = wp.get_device(device)
+            self._torch_device = torch.device(f"cuda:{wp_device.ordinal}" if wp_device.is_cuda else "cpu")
+        elif network is not None:
+            params = list(network.parameters())
+            self._torch_device = params[0].device if params else torch.device("cpu")
+        else:
+            self._torch_device = torch.device("cpu")
+
+        if network is not None:
+            self.network = network.to(self._torch_device).eval()
+        elif network_path is not None:
+            self.network = torch.jit.load(network_path, map_location=self._torch_device).eval()
         else:
             raise ValueError("Either 'network' or 'network_path' must be provided")
 
@@ -105,6 +99,19 @@ class NetLSTMController(Controller):
         self._num_layers = lstm.num_layers
         self._hidden_size = lstm.hidden_size
 
+        self._torch_input_indices: Any = None
+        self._torch_sequential_indices: Any = None
+        self._warp_sequential_indices: wp.array | None = None
+        self._hidden: Any = None
+        self._cell: Any = None
+
+    def set_indices(self, input_indices: wp.array, sequential_indices: wp.array) -> None:
+        import torch
+
+        self._torch_input_indices = torch.tensor(input_indices.numpy(), dtype=torch.long, device=self._torch_device)
+        self._torch_sequential_indices = torch.arange(len(input_indices), dtype=torch.long, device=self._torch_device)
+        self._warp_sequential_indices = sequential_indices
+
     def is_stateful(self) -> bool:
         return True
 
@@ -114,12 +121,9 @@ class NetLSTMController(Controller):
     def state(self, num_actuators: int, device: wp.Device) -> "NetLSTMController.State":
         import torch
 
-        torch_device = self._torch_device
-        if torch_device is None:
-            torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
         return NetLSTMController.State(
-            hidden=torch.zeros(self._num_layers, num_actuators, self._hidden_size, device=torch_device),
-            cell=torch.zeros(self._num_layers, num_actuators, self._hidden_size, device=torch_device),
+            hidden=torch.zeros(self._num_layers, num_actuators, self._hidden_size, device=self._torch_device),
+            cell=torch.zeros(self._num_layers, num_actuators, self._hidden_size, device=self._torch_device),
         )
 
     def compute(
