@@ -13,22 +13,23 @@ write computed forces/torques back to control arrays.
 
 ## Architecture
 
-An actuator is composed from two building blocks:
+An actuator is composed from three building blocks:
 
 - **Controller** — computes raw forces from state error (PD, PID, neural network).
-- **Dynamics** — composable modifiers stacked on top of a controller (delay,
-  clamping, DC motor saturation, angle-dependent limits, …).
+- **Delay** — optional pre-controller modifier that delays targets by N timesteps.
+- **Dynamics** — post-controller modifiers that shape forces (clamping,
+  saturation, angle-dependent limits, …).
 
 The `Actuator` class wires them together:
 
 ```
 Actuator
 ├── Controller  (compute raw forces)
-└── Dynamics[]  (modify targets or forces, in order)
-    ├── Delay              (pre-controller: delays targets)
-    ├── Clamp              (post-controller: ±max_force)
-    ├── DCMotorSaturation   (post-controller: velocity-dependent)
-    └── RemotizedClamp     (post-controller: angle-dependent lookup)
+├── Delay       (optional: delays targets by N timesteps)
+└── Dynamics[]  (post-controller force modifiers, applied in order)
+    ├── Clamp              (±max_force)
+    ├── DCMotorSaturation  (velocity-dependent saturation)
+    └── RemotizedClamp     (angle-dependent lookup)
 ```
 
 ## Installation
@@ -81,25 +82,33 @@ pip install "newton-actuators[torch-cu13]" --extra-index-url https://download.py
 - **NetMLPController**: `f = network(cat(pos_error_history, vel_history)) * torque_scale`
 - **NetLSTMController**: `f, (h', c') = network(input, (h, c))`
 
+### Delay
+
+| Component | Description | Stateful |
+|---|---|---|
+| `Delay` | Delays targets by N timesteps (circular buffer) | Yes |
+
+Passed to `Actuator` via the `delay=` parameter (not in the dynamics list).
+
 ### Dynamics
 
-| Dynamic | Description | Type | Stateful |
-|---|---|---|---|
-| `Clamp` | Box-clamp to ±max_force | post-controller | No |
-| `DCMotorSaturation` | Velocity-dependent torque–speed saturation | post-controller | No |
-| `RemotizedClamp` | Angle-dependent torque limits via lookup table | post-controller | No |
-| `Delay` | Delays targets by N timesteps (circular buffer) | pre-controller | Yes |
+| Dynamic | Description | Stateful |
+|---|---|---|
+| `Clamp` | Box-clamp to ±max_force | No |
+| `DCMotorSaturation` | Velocity-dependent torque–speed saturation | No |
+| `RemotizedClamp` | Angle-dependent torque limits via lookup table | No |
 
 ### Actuator (Composer)
 
-`Actuator(input_indices, output_indices, controller, dynamics=[...])` composes
-a controller with zero or more dynamics. The `step()` method runs:
+`Actuator(input_indices, output_indices, controller, delay=None, dynamics=[...])`
+composes a controller with an optional delay and zero or more dynamics.
+The `step()` method runs:
 
-1. **Pre-controller dynamics** — modify targets (e.g. `Delay`)
+1. **Delay** — read delayed targets from buffer (skipped if no delay or buffer still filling)
 2. **Controller** — compute raw forces
-3. **Post-controller dynamics** — modify forces (e.g. `Clamp`)
+3. **Dynamics** — modify forces (e.g. `Clamp`, `DCMotorSaturation`)
 4. **Scatter-add** — accumulate forces into the output array
-5. **State updates** — update all stateful components
+5. **State updates** — update delay buffer and controller state
 
 ### Common Methods
 
