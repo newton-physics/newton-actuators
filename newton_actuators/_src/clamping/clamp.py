@@ -6,7 +6,7 @@ from typing import Any
 
 import warp as wp
 
-from .base import Dynamic
+from .base import Clamping
 
 
 @wp.kernel
@@ -19,7 +19,7 @@ def _box_clamp_kernel(
     forces[i] = wp.clamp(forces[i], -max_force[i], max_force[i])
 
 
-class Clamp(Dynamic):
+class Clamp(Clamping):
     """Box-clamp dynamic.
 
     Clamps controller output forces to ±max_force per actuator.

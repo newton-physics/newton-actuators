@@ -14,7 +14,7 @@ class NetLSTMController(Controller):
 
     Uses a pre-trained LSTM network to compute joint torques from position
     error and velocity. The network maintains hidden and cell state across
-    timesteps to capture temporal dynamics.
+    timesteps to capture temporal patterns.
 
     The network must be callable as:
         torques, (h_new, c_new) = network(input, (h, c))

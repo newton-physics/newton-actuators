@@ -8,7 +8,7 @@ from typing import Any
 
 from .controllers import NetLSTMController, NetMLPController, PDController, PIDController
 from .delay import Delay
-from .dynamics import Clamp, DCMotorSaturation
+from .clamping import Clamp, DCMotorSaturation
 
 
 @dataclass
@@ -75,7 +75,7 @@ class ParsedActuator:
 
     Each detected API schema produces a (class, kwargs) entry.
     The controller is separated out; everything else goes into
-    component_specs (delay, dynamics, etc.).
+    component_specs (delay, clamping, etc.).
     """
 
     controller_class: type

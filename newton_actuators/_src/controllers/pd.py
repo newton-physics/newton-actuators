@@ -49,7 +49,7 @@ class PDController(Controller):
 
     Force law: f = constant + act + Kp*(target_pos - q) + Kd*(target_vel - v)
 
-    Produces raw (unclamped) forces. Pair with ``Clamp`` or other dynamics
+    Produces raw (unclamped) forces. Pair with ``Clamp`` or other clamping
     for force limiting.
     """
 

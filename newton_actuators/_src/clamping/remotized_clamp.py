@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import warp as wp
 
-from .base import Dynamic
+from .base import Clamping
 
 
 @wp.func
@@ -49,7 +49,7 @@ def _remotized_clamp_kernel(
     forces[i] = wp.clamp(forces[i], -limit, limit)
 
 
-class RemotizedClamp(Dynamic):
+class RemotizedClamp(Clamping):
     """Angle-dependent torque clamping via lookup table.
 
     Replaces a fixed ±max_force box clamp with angle-dependent torque

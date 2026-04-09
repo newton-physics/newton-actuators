@@ -11,7 +11,7 @@ import warp as wp
 
 from .controllers.base import Controller
 from .delay import Delay
-from .dynamics.base import Dynamic
+from .clamping.base import Clamping
 
 
 # TODO: replace with a Transmission class that applies gear ratios / linkage
@@ -33,7 +33,7 @@ class ActuatorState:
     """Composed state for an Actuator.
 
     Holds the controller state and, if a delay is present, the delay
-    state. Dynamics are stateless.
+    state. Clamping objects are stateless.
     """
 
     controller_state: Any = None
@@ -47,15 +47,15 @@ class ActuatorState:
 
 
 class Actuator:
-    """Composed actuator: controller + optional delay + dynamics.
+    """Composed actuator: controller + optional delay + clamping.
 
     An actuator reads from simulation state/control arrays, computes
-    forces via a controller, applies dynamics (clamping, saturation, etc.),
+    forces via a controller, applies clamping (force limits, saturation, etc.),
     and writes the result to the output array.
 
-    Delay is handled separately from dynamics because it is the only
+    Delay is handled separately from clamping because it is the only
     pre-controller modifier (it replaces targets with delayed versions).
-    All dynamics are post-controller (they modify forces).
+    All clamping is post-controller (it bounds forces).
 
     Usage::
 
@@ -64,7 +64,7 @@ class Actuator:
             output_indices=indices,
             controller=PDController(kp=kp, kd=kd),
             delay=Delay(delay=5),
-            dynamics=[Clamp(max_force=max_f)],
+            clamping=[Clamp(max_force=max_f)],
         )
 
         # Simulation loop
@@ -77,7 +77,7 @@ class Actuator:
             for single-output or (N, M) for multi-output actuators.
         controller: Controller that computes raw forces.
         delay: Optional Delay instance for input delay.
-        dynamics: List of Dynamic objects (post-controller force modifiers).
+        clamping: List of Clamping objects (post-controller force bounds).
         state_pos_attr: Attribute on sim_state for positions.
         state_vel_attr: Attribute on sim_state for velocities.
         control_target_pos_attr: Attribute on sim_control for target positions.
@@ -92,7 +92,7 @@ class Actuator:
         output_indices: wp.array,
         controller: Controller,
         delay: Delay | None = None,
-        dynamics: list[Dynamic] | None = None,
+        clamping: list[Clamping] | None = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
         control_target_pos_attr: str = "joint_target_pos",
@@ -104,7 +104,7 @@ class Actuator:
         self.output_indices = output_indices
         self.controller = controller
         self.delay = delay
-        self.dynamics = dynamics or []
+        self.clamping = clamping or []
         self.num_actuators = len(input_indices)
 
         if len(output_indices) != self.num_actuators:
@@ -128,8 +128,8 @@ class Actuator:
 
         controller.set_device(device)
         controller.set_indices(input_indices, self._sequential_indices)
-        for dyn in self.dynamics:
-            dyn.set_device(device)
+        for clamp in self.clamping:
+            clamp.set_device(device)
         if self.delay is not None:
             self.delay.set_indices(self.num_actuators, self._sequential_indices)
 
@@ -139,8 +139,8 @@ class Actuator:
         params |= self.controller.SHARED_PARAMS
         if self.delay is not None:
             params |= self.delay.SHARED_PARAMS
-        for d in self.dynamics:
-            params |= d.SHARED_PARAMS
+        for c in self.clamping:
+            params |= c.SHARED_PARAMS
         return params
 
     def is_stateful(self) -> bool:
@@ -149,7 +149,7 @@ class Actuator:
 
     def is_graphable(self) -> bool:
         """Return True if all components can be captured in a CUDA graph."""
-        return self.controller.is_graphable() and all(d.is_graphable() for d in self.dynamics)
+        return self.controller.is_graphable() and all(c.is_graphable() for c in self.clamping)
 
     def has_transmission(self) -> bool:
         """Return True if this actuator applies a transmission transform."""
@@ -185,7 +185,7 @@ class Actuator:
 
         1. **Delay** — read delayed targets from buffer.
         2. **Controller** — compute raw forces.
-        3. **Dynamics** — modify forces and scatter-add to output.
+        3. **Clamping** — bound forces and scatter-add to output.
         4. **State updates** — update delay buffer and controller state.
 
         If the delay buffer is still filling, steps 2-3 are skipped
@@ -244,9 +244,9 @@ class Actuator:
                 dt,
             )
 
-            # --- 3. Dynamics: modify forces + write output ---
-            for dyn in self.dynamics:
-                dyn.modify_forces(
+            # --- 3. Clamping: bound forces + write output ---
+            for clamp in self.clamping:
+                clamp.modify_forces(
                     self._forces, positions, velocities,
                     self.input_indices, self.num_actuators,
                 )

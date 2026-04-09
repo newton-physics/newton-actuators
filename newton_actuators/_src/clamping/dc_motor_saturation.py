@@ -6,7 +6,7 @@ from typing import Any
 
 import warp as wp
 
-from .base import Dynamic
+from .base import Clamping
 
 
 @wp.kernel
@@ -35,7 +35,7 @@ def _dc_motor_clamp_kernel(
     forces[i] = wp.clamp(forces[i], min_torque, max_torque)
 
 
-class DCMotorSaturation(Dynamic):
+class DCMotorSaturation(Clamping):
     """DC motor velocity-dependent torque saturation.
 
     Clips controller output using the torque–speed characteristic:

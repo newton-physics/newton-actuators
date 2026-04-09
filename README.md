@@ -17,8 +17,9 @@ An actuator is composed from three building blocks:
 
 - **Controller** — computes raw forces from state error (PD, PID, neural network).
 - **Delay** — optional pre-controller modifier that delays targets by N timesteps.
-- **Dynamics** — post-controller modifiers that shape forces (clamping,
-  saturation, angle-dependent limits, …).
+- **Clamping** — post-controller force bounds (symmetric limits,
+  velocity-dependent saturation, angle-dependent torque curves, …).
+  Order does not matter — each clamping intersects its limits independently.
 
 The `Actuator` class wires them together:
 
@@ -26,7 +27,7 @@ The `Actuator` class wires them together:
 Actuator
 ├── Controller  (compute raw forces)
 ├── Delay       (optional: delays targets by N timesteps)
-└── Dynamics[]  (post-controller force modifiers, applied in order)
+└── Clamping[]  (post-controller force bounds)
     ├── Clamp              (±max_force)
     ├── DCMotorSaturation  (velocity-dependent saturation)
     └── RemotizedClamp     (angle-dependent lookup)
@@ -79,7 +80,7 @@ pip install "newton-actuators[torch-cu13]" --extra-index-url https://download.py
 
 - **PDController**: `f = constant + act + Kp·(target_pos - q) + Kd·(target_vel - v)`
 - **PIDController**: `f = constant + act + Kp·e + Ki·∫e·dt + Kd·de`
-- **NetMLPController**: `f = network(cat(pos_error_history, vel_history)) * torque_scale`
+- **NetMLPController**: `f = network(cat(pos_error_history, vel_history))`
 - **NetLSTMController**: `f, (h', c') = network(input, (h, c))`
 
 ### Delay
@@ -88,11 +89,11 @@ pip install "newton-actuators[torch-cu13]" --extra-index-url https://download.py
 |---|---|---|
 | `Delay` | Delays targets by N timesteps (circular buffer) | Yes |
 
-Passed to `Actuator` via the `delay=` parameter (not in the dynamics list).
+Passed to `Actuator` via the `delay=` parameter (not in the clamping list).
 
-### Dynamics
+### Clamping
 
-| Dynamic | Description | Stateful |
+| Clamping | Description | Stateful |
 |---|---|---|
 | `Clamp` | Box-clamp to ±max_force | No |
 | `DCMotorSaturation` | Velocity-dependent torque–speed saturation | No |
@@ -100,13 +101,13 @@ Passed to `Actuator` via the `delay=` parameter (not in the dynamics list).
 
 ### Actuator (Composer)
 
-`Actuator(input_indices, output_indices, controller, delay=None, dynamics=[...])`
-composes a controller with an optional delay and zero or more dynamics.
+`Actuator(input_indices, output_indices, controller, delay=None, clamping=[...])`
+composes a controller with an optional delay and zero or more clamping objects.
 The `step()` method runs:
 
 1. **Delay** — read delayed targets from buffer (skipped if no delay or buffer still filling)
 2. **Controller** — compute raw forces
-3. **Dynamics** — modify forces (e.g. `Clamp`, `DCMotorSaturation`)
+3. **Clamping** — bound forces (e.g. `Clamp`, `DCMotorSaturation`)
 4. **Scatter-add** — accumulate forces into the output array
 5. **State updates** — update delay buffer and controller state
 
@@ -120,7 +121,7 @@ The `step()` method runs:
 
 ## Workflow
 
-1. **Create an actuator** by composing a controller with dynamics
+1. **Create an actuator** by composing a controller with clamping
 2. **Check statefulness**: call `actuator.is_stateful()`
 3. **Initialize states**: for stateful actuators, create double-buffered states with `actuator.state()`
 4. **Simulation loop**: call `actuator.step()` each timestep
@@ -143,7 +144,7 @@ actuator = Actuator(
         kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
         kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
     ),
-    dynamics=[
+    clamping=[
         Clamp(max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32)),
     ],
 )
@@ -166,7 +167,7 @@ actuator = Actuator(
         kd=wp.array([5.0, 5.0], dtype=wp.float32),
         integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
     ),
-    dynamics=[
+    clamping=[
         Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
     ],
 )
@@ -182,7 +183,7 @@ for step in range(num_steps):
 
 ### Composing: PD + Delay + DC Motor Saturation
 
-The composer pattern lets you freely combine controllers and dynamics:
+The composer pattern lets you freely combine controllers and clamping:
 
 ```python
 from newton_actuators import Delay, DCMotorSaturation
@@ -192,7 +193,7 @@ actuator = Actuator(
     output_indices=indices,
     controller=PDController(kp=kp, kd=kd),
     delay=Delay(delay=5),
-    dynamics=[
+    clamping=[
         DCMotorSaturation(
             saturation_effort=sat_effort,
             velocity_limit=vel_limit,
@@ -211,7 +212,7 @@ actuator = Actuator(
     input_indices=indices,
     output_indices=indices,
     controller=NetLSTMController(network=my_lstm_model),
-    dynamics=[Clamp(max_force=max_force)],
+    clamping=[Clamp(max_force=max_force)],
 )
 
 state = actuator.state()

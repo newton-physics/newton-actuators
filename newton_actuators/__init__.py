@@ -12,10 +12,10 @@ from ._src.controllers import (
     PIDController,
 )
 from ._src.delay import Delay
-from ._src.dynamics import (
+from ._src.clamping import (
     Clamp,
     DCMotorSaturation,
-    Dynamic,
+    Clamping,
     RemotizedClamp,
 )
 from ._src.usd_parser import (
@@ -35,8 +35,8 @@ __all__ = [
     "PIDController",
     "NetMLPController",
     "NetLSTMController",
-    # Dynamics
-    "Dynamic",
+    # Clamping
+    "Clamping",
     "Clamp",
     "DCMotorSaturation",
     "Delay",

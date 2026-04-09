@@ -47,7 +47,7 @@ class Delay:
     filling, the controller produces no output.
 
     Passed to ``Actuator`` via the ``delay=`` parameter (not in the
-    dynamics list).
+    clamping list).
     """
 
     SHARED_PARAMS = {"delay"}

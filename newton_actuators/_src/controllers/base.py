@@ -12,7 +12,7 @@ class Controller:
     Controllers are the core computation component in an actuator. They read
     positions, velocities, and targets, then write raw (unclamped) forces to
     a scratch buffer. Clamping and other post-processing is handled by
-    Dynamic objects composed on top.
+    Clamping objects composed on top.
 
     Subclasses must override ``compute`` and ``resolve_arguments``.
 

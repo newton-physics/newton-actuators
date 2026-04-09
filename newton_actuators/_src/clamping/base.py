@@ -6,15 +6,16 @@ from typing import Any
 import warp as wp
 
 
-class Dynamic:
-    """Base class for post-controller dynamics that modify forces.
+class Clamping:
+    """Base class for post-controller force clamping.
 
-    Dynamics are stacked on top of a controller to add behaviors such as
-    clamping or velocity-dependent saturation. They modify forces in-place
+    Clamping objects are stacked on top of a controller to bound
+    output forces — symmetric limits, velocity-dependent saturation,
+    angle-dependent torque curves, etc. They modify forces in-place
     after the controller has computed them.
 
     For input delay, use the ``Delay`` class (passed separately to the
-    Actuator, not as a Dynamic).
+    Actuator, not as a Clamping).
 
     Class Attributes:
         SHARED_PARAMS: Parameter names that are instance-level (shared across

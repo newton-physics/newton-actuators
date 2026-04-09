@@ -64,7 +64,7 @@ class TestPDWithClamp(unittest.TestCase):
                 kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 Clamp(max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32)),
             ],
         )
@@ -84,7 +84,7 @@ class TestPDWithClamp(unittest.TestCase):
                 kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 Clamp(max_force=wp.array([1000.0, 1000.0, 1000.0], dtype=wp.float32)),
             ],
         )
@@ -104,8 +104,8 @@ class TestPDWithClamp(unittest.TestCase):
         forces = sim_control.joint_f.numpy()
         np.testing.assert_allclose(forces, [100.0, 200.0, 300.0], rtol=1e-5)
 
-    def test_pd_without_dynamics(self):
-        """PD controller without any dynamics produces unclamped forces."""
+    def test_pd_without_clamping(self):
+        """PD controller without any clamping produces unclamped forces."""
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
             input_indices=indices,
@@ -159,7 +159,7 @@ class TestPDWithDelay(unittest.TestCase):
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             delay=Delay(delay=5),
-            dynamics=[
+            clamping=[
                 Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
             ],
         )
@@ -208,7 +208,7 @@ class TestPDWithDelay(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
-            dynamics=[
+            clamping=[
                 Clamp(max_force=wp.array([1000.0], dtype=wp.float32)),
             ],
         )
@@ -272,7 +272,7 @@ class TestPIDWithClamp(unittest.TestCase):
                 kd=wp.array([5.0, 5.0], dtype=wp.float32),
                 integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
             ],
         )
@@ -292,7 +292,7 @@ class TestPIDWithClamp(unittest.TestCase):
                 kd=wp.array([5.0, 5.0], dtype=wp.float32),
                 integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
             ],
         )
@@ -324,7 +324,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 DCMotorSaturation(
                     saturation_effort=wp.array([80.0, 80.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0, 10.0], dtype=wp.float32),
@@ -354,7 +354,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kp=wp.array([100.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 DCMotorSaturation(
                     saturation_effort=wp.array([150.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
@@ -386,7 +386,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 DCMotorSaturation(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
@@ -418,7 +418,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 DCMotorSaturation(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
@@ -450,7 +450,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
-            dynamics=[
+            clamping=[
                 DCMotorSaturation(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
@@ -501,7 +501,7 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             delay=Delay(delay=3),
-            dynamics=[
+            clamping=[
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -526,7 +526,7 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
-            dynamics=[
+            clamping=[
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -567,7 +567,7 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
-            dynamics=[
+            clamping=[
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -611,7 +611,7 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
-            dynamics=[
+            clamping=[
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -661,7 +661,7 @@ class TestComposition(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=2),
-            dynamics=[
+            clamping=[
                 DCMotorSaturation(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
@@ -708,7 +708,7 @@ class TestComposition(unittest.TestCase):
                 integral_max=wp.array([100.0], dtype=wp.float32),
             ),
             delay=Delay(delay=2),
-            dynamics=[
+            clamping=[
                 Clamp(max_force=wp.array([50.0], dtype=wp.float32)),
             ],
         )
@@ -1000,7 +1000,7 @@ class TestNetMLPController(unittest.TestCase):
             input_indices=indices,
             output_indices=indices,
             controller=NetMLPController(network=network),
-            dynamics=[Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
+            clamping=[Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
@@ -1035,7 +1035,7 @@ class TestNetMLPController(unittest.TestCase):
             input_indices=indices,
             output_indices=indices,
             controller=NetMLPController(network=network),
-            dynamics=[Clamp(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
+            clamping=[Clamp(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
@@ -1072,7 +1072,7 @@ class TestNetMLPController(unittest.TestCase):
             input_indices=indices,
             output_indices=indices,
             controller=NetMLPController(network=network),
-            dynamics=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
+            clamping=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
@@ -1210,7 +1210,7 @@ class TestNetLSTMController(unittest.TestCase):
             input_indices=indices,
             output_indices=indices,
             controller=NetLSTMController(network=network),
-            dynamics=[Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
+            clamping=[Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
@@ -1246,7 +1246,7 @@ class TestNetLSTMController(unittest.TestCase):
             input_indices=indices,
             output_indices=indices,
             controller=NetLSTMController(network=network),
-            dynamics=[Clamp(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
+            clamping=[Clamp(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
@@ -1282,7 +1282,7 @@ class TestNetLSTMController(unittest.TestCase):
             input_indices=indices,
             output_indices=indices,
             controller=NetLSTMController(network=network),
-            dynamics=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
+            clamping=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
