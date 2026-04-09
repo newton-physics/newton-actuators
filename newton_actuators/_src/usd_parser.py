@@ -135,13 +135,21 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
             entry.validate(kwargs)
 
         if entry.is_controller:
+            if controller_class is not None:
+                raise ValueError(
+                    f"Actuator prim has multiple controllers: "
+                    f"{controller_class.__name__} and {entry.component_class.__name__}"
+                )
             controller_class = entry.component_class
             controller_kwargs = kwargs
         else:
             component_specs.append((entry.component_class, kwargs))
 
     if controller_class is None:
-        return None
+        raise ValueError(
+            f"Actuator prim has no controller schema applied "
+            f"(applied schemas: {prim.GetAppliedSchemas()})"
+        )
 
     return ParsedActuator(
         controller_class=controller_class,
