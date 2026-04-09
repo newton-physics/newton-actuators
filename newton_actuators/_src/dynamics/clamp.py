@@ -36,7 +36,6 @@ class Clamp(Dynamic):
         velocities: wp.array,
         input_indices: wp.array,
         num_actuators: int,
-        current_state: Any,
     ) -> None:
         wp.launch(
             kernel=box_clamp_kernel,

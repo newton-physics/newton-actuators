@@ -158,8 +158,8 @@ class TestPDWithDelay(unittest.TestCase):
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=5),
             dynamics=[
-                Delay(delay=5),
                 Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
             ],
         )
@@ -178,12 +178,12 @@ class TestPDWithDelay(unittest.TestCase):
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
-            dynamics=[Delay(delay=delay)],
+            delay=Delay(delay=delay),
         )
 
         state = actuator.state()
         self.assertIsNotNone(state)
-        delay_state = state.dynamic_states[0]
+        delay_state = state.delay_state
         self.assertEqual(delay_state.write_idx, delay - 1)
         self.assertFalse(delay_state.is_filled)
         self.assertEqual(delay_state.buffer_pos.shape, (delay, num_dofs))
@@ -207,8 +207,8 @@ class TestPDWithDelay(unittest.TestCase):
                 kp=wp.array([1.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=delay),
             dynamics=[
-                Delay(delay=delay),
                 Clamp(max_force=wp.array([1000.0], dtype=wp.float32)),
             ],
         )
@@ -500,8 +500,8 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=3),
             dynamics=[
-                Delay(delay=3),
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -525,8 +525,8 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=delay),
             dynamics=[
-                Delay(delay=delay),
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -566,8 +566,8 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=delay),
             dynamics=[
-                Delay(delay=delay),
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -610,8 +610,8 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
                 kp=wp.array([100.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=delay),
             dynamics=[
-                Delay(delay=delay),
                 RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
             ],
         )
@@ -660,8 +660,8 @@ class TestComposition(unittest.TestCase):
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=2),
             dynamics=[
-                Delay(delay=2),
                 DCMotorSaturation(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
@@ -693,7 +693,6 @@ class TestComposition(unittest.TestCase):
             actuator.step(sim_state, sim_control, current, next_s, dt=0.01)
 
         force = sim_control.joint_f.numpy()[0]
-        # At v=0, sat_effort=100 -> max_torque=100. PD raw=1000, clamped to 100.
         self.assertAlmostEqual(force, 100.0, places=3)
 
     def test_pid_with_delay_and_clamp(self):
@@ -708,8 +707,8 @@ class TestComposition(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
                 integral_max=wp.array([100.0], dtype=wp.float32),
             ),
+            delay=Delay(delay=2),
             dynamics=[
-                Delay(delay=2),
                 Clamp(max_force=wp.array([50.0], dtype=wp.float32)),
             ],
         )
@@ -718,7 +717,7 @@ class TestComposition(unittest.TestCase):
         stateA = actuator.state()
         stateB = actuator.state()
         self.assertIsNotNone(stateA.controller_state)
-        self.assertIsNotNone(stateA.dynamic_states[0])
+        self.assertIsNotNone(stateA.delay_state)
 
         for step in range(5):
             sim_state = MockSimState(
@@ -803,6 +802,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
+            schemas=["PDControllerAPI"],
         )
 
         result = parse_actuator_prim(prim)
@@ -812,6 +812,7 @@ class TestActuatorParser(unittest.TestCase):
         self.assertEqual(result.target_paths, ["/World/Robot/Joint1"])
         self.assertEqual(result.controller_kwargs.get("kp"), 100.0)
         self.assertEqual(result.controller_kwargs.get("kd"), 10.0)
+        self.assertEqual(len(result.component_specs), 0)
 
     def test_parse_delayed_pd_actuator_prim(self):
         from newton_actuators import PDController, parse_actuator_prim
@@ -825,18 +826,18 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
+            schemas=["PDControllerAPI", "DelayAPI"],
         )
 
         result = parse_actuator_prim(prim)
         self.assertIsNotNone(result)
         self.assertEqual(result.controller_class, PDController)
         self.assertEqual(result.controller_kwargs.get("kp"), 50.0)
-        self.assertEqual(len(result.dynamics_specs), 1)
-        dyn_cls, dyn_kwargs = result.dynamics_specs[0]
+        self.assertEqual(len(result.component_specs), 1)
+        delay_cls, delay_kwargs = result.component_specs[0]
         from newton_actuators import Delay
-
-        self.assertEqual(dyn_cls, Delay)
-        self.assertEqual(dyn_kwargs.get("delay"), 5)
+        self.assertEqual(delay_cls, Delay)
+        self.assertEqual(delay_kwargs.get("delay"), 5)
 
     def test_parse_pid_actuator_prim(self):
         from newton_actuators import PIDController, parse_actuator_prim
@@ -851,6 +852,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
+            schemas=["PIDControllerAPI"],
         )
 
         result = parse_actuator_prim(prim)
@@ -873,6 +875,7 @@ class TestActuatorParser(unittest.TestCase):
                     ["/World/Robot/Joint1", "/World/Robot/Joint2", "/World/Robot/Joint3"]
                 ),
             },
+            schemas=["PDControllerAPI"],
         )
 
         result = parse_actuator_prim(prim)
@@ -894,6 +897,7 @@ class TestActuatorParser(unittest.TestCase):
             type_name="Actuator",
             attributes={"newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp")},
             relationships={},
+            schemas=["PDControllerAPI"],
         )
         result = parse_actuator_prim(prim)
         self.assertIsNone(result)
@@ -913,6 +917,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
+            schemas=["PDControllerAPI", "DCMotorAPI"],
         )
 
         result = parse_actuator_prim(prim)
@@ -920,8 +925,7 @@ class TestActuatorParser(unittest.TestCase):
         self.assertEqual(result.controller_class, PDController)
         self.assertEqual(result.controller_kwargs.get("kp"), 100.0)
         self.assertEqual(result.controller_kwargs.get("kd"), 10.0)
-        # DC motor params should be in dynamics_specs
-        self.assertTrue(len(result.dynamics_specs) > 0)
+        self.assertTrue(len(result.component_specs) > 0)
 
     def test_parse_dc_motor_velocity_limit_zero_raises(self):
         from newton_actuators import parse_actuator_prim
@@ -936,6 +940,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
+            schemas=["PDControllerAPI", "DCMotorAPI"],
         )
 
         with self.assertRaises(ValueError):
@@ -954,6 +959,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
+            schemas=["PDControllerAPI", "DCMotorAPI"],
         )
 
         with self.assertRaises(ValueError):

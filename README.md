@@ -217,10 +217,10 @@ from newton_actuators import parse_actuator_prim
 
 result = parse_actuator_prim(prim)
 if result is not None:
-    controller_cls = result.controller_class   # e.g. PDController
-    ctrl_kwargs = result.controller_kwargs     # e.g. {"kp": 100.0}
-    dynamics_specs = result.dynamics_specs     # e.g. [(Delay, {"delay": 5}), ...]
-    target_paths = result.target_paths         # e.g. ["/World/Robot/Joint1"]
+    controller_cls = result.controller_class    # e.g. PDController
+    ctrl_kwargs = result.controller_kwargs      # e.g. {"kp": 100.0, "kd": 10.0}
+    component_specs = result.component_specs    # e.g. [(Delay, {"delay": 5}), (Clamp, {"max_force": 50.0})]
+    target_paths = result.target_paths          # e.g. ["/World/Robot/Joint1"]
 ```
 
 ## License

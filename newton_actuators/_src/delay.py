@@ -6,19 +6,18 @@ from typing import Any
 
 import warp as wp
 
-from ..kernels import delay_buffer_state_kernel
-from .base import Dynamic
+from .kernels import delay_buffer_state_kernel
 
 
-class Delay(Dynamic):
-    """Input delay dynamic.
+class Delay:
+    """Input delay for actuator targets.
 
     Delays targets by N timesteps using a circular buffer, modelling
-    actuator communication or processing lag. When the buffer is not
-    yet filled, the controller is skipped (no force output).
+    actuator communication or processing lag. While the buffer is
+    filling, the controller produces no output.
 
-    This is a pre-controller dynamic: it replaces targets with delayed
-    versions before the controller sees them.
+    Passed to ``Actuator`` via the ``delay=`` parameter (not in the
+    dynamics list).
     """
 
     SCALAR_PARAMS = {"delay"}
@@ -47,7 +46,7 @@ class Delay(Dynamic):
         return {"delay": args["delay"]}
 
     def __init__(self, delay: int):
-        """Initialize delay dynamic.
+        """Initialize delay.
 
         Args:
             delay: Number of timesteps to delay inputs.
@@ -58,9 +57,6 @@ class Delay(Dynamic):
     def bind(self, num_actuators: int, sequential_indices: wp.array, device: wp.Device) -> None:
         self._sequential_indices = sequential_indices
 
-    def is_stateful(self) -> bool:
-        return True
-
     def state(self, num_actuators: int, device: wp.Device) -> "Delay.State":
         return Delay.State(
             buffer_pos=wp.zeros((self.delay, num_actuators), dtype=wp.float32, device=device),
@@ -70,22 +66,26 @@ class Delay(Dynamic):
             is_filled=False,
         )
 
-    def modify_targets(
-        self,
-        target_pos: wp.array,
-        target_vel: wp.array,
-        act_input: wp.array | None,
-        target_indices: wp.array,
-        current_state: "Delay.State",
-    ) -> tuple[wp.array, wp.array, wp.array | None, wp.array] | None:
-        if current_state is None or not current_state.is_filled:
-            return None
+    def is_ready(self, current_state: "Delay.State") -> bool:
+        """Return True if the buffer is filled and delayed targets are available."""
+        return current_state is not None and current_state.is_filled
 
+    def get_delayed_targets(
+        self,
+        act_input: wp.array | None,
+        current_state: "Delay.State",
+    ) -> tuple[wp.array, wp.array, wp.array | None, wp.array]:
+        """Return delayed targets from the circular buffer.
+
+        Call only when ``is_ready()`` is True.
+
+        Returns:
+            (delayed_pos, delayed_vel, delayed_act, sequential_indices)
+        """
         read_idx = (current_state.write_idx + 1) % self.delay
         delayed_pos = current_state.buffer_pos[read_idx]
         delayed_vel = current_state.buffer_vel[read_idx]
         delayed_act = current_state.buffer_act[read_idx] if act_input is not None else None
-
         return delayed_pos, delayed_vel, delayed_act, self._sequential_indices
 
     def update_state(

@@ -58,7 +58,6 @@ class DCMotorSaturation(Dynamic):
         velocities: wp.array,
         input_indices: wp.array,
         num_actuators: int,
-        current_state: Any,
     ) -> None:
         wp.launch(
             kernel=dc_motor_clamp_kernel,

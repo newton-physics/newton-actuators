@@ -36,37 +36,36 @@ class RemotizedClamp(Dynamic):
         self,
         lookup_angles: wp.array | tuple[float, ...] | list[float],
         lookup_torques: wp.array | tuple[float, ...] | list[float],
+        device: wp.Device | str | None = None,
     ):
         """Initialize remotized clamp dynamic.
 
         Args:
             lookup_angles: Sorted joint angles for the torque lookup table. Shape (K,).
             lookup_torques: Max output torques corresponding to lookup_angles. Shape (K,).
+            device: Warp device. Required when passing plain lists/tuples;
+                    ignored when passing wp.array (device is inferred).
         """
         if len(lookup_angles) != len(lookup_torques):
             raise ValueError(
                 f"lookup_angles length ({len(lookup_angles)}) must match "
                 f"lookup_torques length ({len(lookup_torques)})"
             )
-        self._raw_lookup_angles = lookup_angles
-        self._raw_lookup_torques = lookup_torques
-        self.lookup_angles: wp.array | None = None
-        self.lookup_torques: wp.array | None = None
         self.lookup_size = len(lookup_angles)
 
-    def bind(self, num_actuators: int, sequential_indices: wp.array, device: wp.Device) -> None:
-        if not isinstance(self._raw_lookup_angles, wp.array):
+        if isinstance(lookup_angles, wp.array):
+            self.lookup_angles = lookup_angles
+        else:
             self.lookup_angles = wp.array(
-                np.array(self._raw_lookup_angles, dtype=np.float32), device=device
+                np.array(lookup_angles, dtype=np.float32), device=device
             )
+
+        if isinstance(lookup_torques, wp.array):
+            self.lookup_torques = lookup_torques
         else:
-            self.lookup_angles = self._raw_lookup_angles
-        if not isinstance(self._raw_lookup_torques, wp.array):
             self.lookup_torques = wp.array(
-                np.array(self._raw_lookup_torques, dtype=np.float32), device=device
+                np.array(lookup_torques, dtype=np.float32), device=device
             )
-        else:
-            self.lookup_torques = self._raw_lookup_torques
 
     def modify_forces(
         self,
@@ -75,7 +74,6 @@ class RemotizedClamp(Dynamic):
         velocities: wp.array,
         input_indices: wp.array,
         num_actuators: int,
-        current_state: Any,
     ) -> None:
         wp.launch(
             kernel=remotized_clamp_kernel,

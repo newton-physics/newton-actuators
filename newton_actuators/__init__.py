@@ -11,10 +11,10 @@ from ._src.controllers import (
     PDController,
     PIDController,
 )
+from ._src.delay import Delay
 from ._src.dynamics import (
     Clamp,
     DCMotorSaturation,
-    Delay,
     Dynamic,
     RemotizedClamp,
 )

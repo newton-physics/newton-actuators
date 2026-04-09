@@ -10,6 +10,7 @@ import numpy as np
 import warp as wp
 
 from .controllers.base import Controller
+from .delay import Delay
 from .dynamics.base import Dynamic
 from .kernels import scatter_add_kernel
 
@@ -18,28 +19,30 @@ from .kernels import scatter_add_kernel
 class ActuatorState:
     """Composed state for an Actuator.
 
-    Holds the controller state and a list of dynamic states, one per
-    dynamic in the actuator's dynamics list.
+    Holds the controller state and, if a delay is present, the delay
+    state. Dynamics are stateless.
     """
 
     controller_state: Any = None
-    dynamic_states: list = field(default_factory=list)
+    delay_state: Any = None
 
     def reset(self) -> None:
-        """Reset all sub-states in-place."""
         if self.controller_state is not None:
             self.controller_state.reset()
-        for s in self.dynamic_states:
-            if s is not None:
-                s.reset()
+        if self.delay_state is not None:
+            self.delay_state.reset()
 
 
 class Actuator:
-    """Composed actuator: controller + dynamics.
+    """Composed actuator: controller + optional delay + dynamics.
 
     An actuator reads from simulation state/control arrays, computes
-    forces via a controller, applies dynamics (delay, clamping, etc.),
+    forces via a controller, applies dynamics (clamping, saturation, etc.),
     and writes the result to the output array.
+
+    Delay is handled separately from dynamics because it is the only
+    pre-controller modifier (it replaces targets with delayed versions).
+    All dynamics are post-controller (they modify forces).
 
     Usage::
 
@@ -47,17 +50,21 @@ class Actuator:
             input_indices=indices,
             output_indices=indices,
             controller=PDController(kp=kp, kd=kd),
-            dynamics=[Delay(delay=5), Clamp(max_force=max_f)],
+            delay=Delay(delay=5),
+            dynamics=[Clamp(max_force=max_f)],
         )
 
         # Simulation loop
         actuator.step(sim_state, sim_control, state_a, state_b, dt=0.01)
 
     Args:
-        input_indices: DOF indices for reading state and targets. Shape (N,).
-        output_indices: DOF indices for writing output forces. Shape (N,).
+        input_indices: DOF indices for reading state and targets. Shape (N,)
+            for single-input or (N, M) for multi-input actuators.
+        output_indices: DOF indices for writing output forces. Shape (N,)
+            for single-output or (N, M) for multi-output actuators.
         controller: Controller that computes raw forces.
-        dynamics: List of Dynamic objects applied in order.
+        delay: Optional Delay instance for input delay.
+        dynamics: List of Dynamic objects (post-controller force modifiers).
         state_pos_attr: Attribute on sim_state for positions.
         state_vel_attr: Attribute on sim_state for velocities.
         control_target_pos_attr: Attribute on sim_control for target positions.
@@ -71,6 +78,7 @@ class Actuator:
         input_indices: wp.array,
         output_indices: wp.array,
         controller: Controller,
+        delay: Delay | None = None,
         dynamics: list[Dynamic] | None = None,
         state_pos_attr: str = "joint_q",
         state_vel_attr: str = "joint_qd",
@@ -82,6 +90,7 @@ class Actuator:
         self.input_indices = input_indices
         self.output_indices = output_indices
         self.controller = controller
+        self.delay = delay
         self.dynamics = dynamics or []
         self.num_actuators = len(input_indices)
 
@@ -105,20 +114,22 @@ class Actuator:
         self._forces = wp.zeros(self.num_actuators, dtype=wp.float32, device=device)
 
         controller.bind(input_indices, self._sequential_indices, device)
-        for dyn in self.dynamics:
-            dyn.bind(self.num_actuators, self._sequential_indices, device)
+        if self.delay is not None:
+            self.delay.bind(self.num_actuators, self._sequential_indices, device)
 
     @property
     def SCALAR_PARAMS(self) -> set[str]:
         params: set[str] = set()
         params |= self.controller.SCALAR_PARAMS
+        if self.delay is not None:
+            params |= self.delay.SCALAR_PARAMS
         for d in self.dynamics:
             params |= d.SCALAR_PARAMS
         return params
 
     def is_stateful(self) -> bool:
-        """Return True if any component maintains internal state."""
-        return self.controller.is_stateful() or any(d.is_stateful() for d in self.dynamics)
+        """Return True if controller or delay maintains internal state."""
+        return self.controller.is_stateful() or self.delay is not None
 
     def is_graphable(self) -> bool:
         """Return True if all components can be captured in a CUDA graph."""
@@ -135,10 +146,11 @@ class Actuator:
                 if self.controller.is_stateful()
                 else None
             ),
-            dynamic_states=[
-                d.state(self.num_actuators, device) if d.is_stateful() else None
-                for d in self.dynamics
-            ],
+            delay_state=(
+                self.delay.state(self.num_actuators, device)
+                if self.delay is not None
+                else None
+            ),
         )
 
     def step(
@@ -151,12 +163,12 @@ class Actuator:
     ) -> None:
         """Execute one control step.
 
-        1. Extract arrays from sim_state / sim_control.
-        2. Apply pre-controller dynamics (modify targets).
-        3. Run controller (compute raw forces).
-        4. Apply post-controller dynamics (modify forces).
-        5. Scatter-add forces to output.
-        6. Update states.
+        1. If delay is present, swap targets with delayed versions
+           (or skip the step if the delay buffer is not yet filled).
+        2. Run controller (compute raw forces).
+        3. Apply dynamics (modify forces).
+        4. Scatter-add forces to output.
+        5. Update delay / controller state.
 
         Args:
             sim_state: Simulation state with position/velocity arrays.
@@ -174,20 +186,21 @@ class Actuator:
         if self.control_input_attr is not None:
             orig_act_input = getattr(sim_control, self.control_input_attr, None)
 
-        # --- Pre-controller dynamics (modify targets) ---
         target_pos = orig_target_pos
         target_vel = orig_target_vel
         act_input = orig_act_input
         target_indices = self.input_indices
 
+        # --- Delay (pre-controller) ---
         skip_compute = False
-        for i, dyn in enumerate(self.dynamics):
-            dyn_state = current_act_state.dynamic_states[i] if current_act_state else None
-            result = dyn.modify_targets(target_pos, target_vel, act_input, target_indices, dyn_state)
-            if result is None:
+        if self.delay is not None:
+            delay_state = current_act_state.delay_state if current_act_state else None
+            if self.delay.is_ready(delay_state):
+                target_pos, target_vel, act_input, target_indices = (
+                    self.delay.get_delayed_targets(act_input, delay_state)
+                )
+            else:
                 skip_compute = True
-                break
-            target_pos, target_vel, act_input, target_indices = result
 
         if not skip_compute:
             # --- Controller ---
@@ -207,12 +220,11 @@ class Actuator:
                 dt,
             )
 
-            # --- Post-controller dynamics (modify forces) ---
-            for i, dyn in enumerate(self.dynamics):
-                dyn_state = current_act_state.dynamic_states[i] if current_act_state else None
+            # --- Post-controller dynamics ---
+            for dyn in self.dynamics:
                 dyn.modify_forces(
                     self._forces, positions, velocities,
-                    self.input_indices, self.num_actuators, dyn_state,
+                    self.input_indices, self.num_actuators,
                 )
 
             # --- Scatter-add to output ---
@@ -237,12 +249,11 @@ class Actuator:
                     dt,
                 )
 
-            for i, dyn in enumerate(self.dynamics):
-                if dyn.is_stateful():
-                    dyn.update_state(
-                        orig_target_pos, orig_target_vel, orig_act_input,
-                        self.input_indices, self.num_actuators,
-                        current_act_state.dynamic_states[i],
-                        next_act_state.dynamic_states[i],
-                        dt,
-                    )
+            if self.delay is not None:
+                self.delay.update_state(
+                    orig_target_pos, orig_target_vel, orig_act_input,
+                    self.input_indices, self.num_actuators,
+                    current_act_state.delay_state,
+                    next_act_state.delay_state,
+                    dt,
+                )
