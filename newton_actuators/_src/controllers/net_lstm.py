@@ -171,16 +171,8 @@ class NetLSTMController(Controller):
 
     def update_state(
         self,
-        positions: wp.array,
-        velocities: wp.array,
-        target_pos: wp.array,
-        target_vel: wp.array,
-        input_indices: wp.array,
-        target_indices: wp.array,
-        num_actuators: int,
         current_state: "NetLSTMController.State",
         next_state: "NetLSTMController.State",
-        dt: float,
     ) -> None:
         if next_state is None:
             return

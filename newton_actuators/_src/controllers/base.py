@@ -95,29 +95,13 @@ class Controller:
 
     def update_state(
         self,
-        positions: wp.array,
-        velocities: wp.array,
-        target_pos: wp.array,
-        target_vel: wp.array,
-        input_indices: wp.array,
-        target_indices: wp.array,
-        num_actuators: int,
         current_state: Any,
         next_state: Any,
-        dt: float,
     ) -> None:
-        """Update internal state. Override in stateful controllers.
+        """Advance internal state after a compute step.
 
         Args:
-            positions: Joint positions (global array).
-            velocities: Joint velocities (global array).
-            target_pos: Target positions (post-dynamic, may be compact).
-            target_vel: Target velocities (post-dynamic, may be compact).
-            input_indices: Indices into positions/velocities.
-            target_indices: Indices into target arrays.
-            num_actuators: Number of actuators N.
             current_state: Current controller state.
             next_state: Next controller state to write.
-            dt: Timestep in seconds.
         """
         pass

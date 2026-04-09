@@ -243,13 +243,8 @@ class Actuator:
         if has_states:
             if self.controller.is_stateful() and not skip_compute:
                 self.controller.update_state(
-                    positions, velocities,
-                    target_pos, target_vel,
-                    self.input_indices, target_indices,
-                    self.num_actuators,
                     current_act_state.controller_state,
                     next_act_state.controller_state,
-                    dt,
                 )
 
             if self.delay is not None:

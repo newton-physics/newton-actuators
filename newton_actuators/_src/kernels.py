@@ -87,8 +87,9 @@ def pid_force_kernel(
     dt: float,
     current_integral: wp.array(dtype=float),
     forces: wp.array(dtype=float),
+    next_integral: wp.array(dtype=float),
 ):
-    """PID force: f = constant + act + kp*e + ki*integral + kd*de. Writes to forces."""
+    """PID force: f = constant + act + kp*e + ki*integral + kd*de. Writes to forces and next integral."""
     i = wp.tid()
     state_idx = state_indices[i]
     target_idx = target_indices[i]
@@ -110,6 +111,7 @@ def pid_force_kernel(
 
     force = const_f + act + kp[i] * position_error + ki[i] * integral + kd[i] * velocity_error
     forces[force_idx] = force
+    next_integral[i] = integral
 
 
 # ---------------------------------------------------------------------------
@@ -189,30 +191,6 @@ def scatter_add_kernel(
 # ---------------------------------------------------------------------------
 # State-update kernels
 # ---------------------------------------------------------------------------
-
-
-@wp.kernel
-def pid_integral_state_kernel(
-    current_pos: wp.array(dtype=float),
-    target_pos: wp.array(dtype=float),
-    state_indices: wp.array(dtype=wp.uint32),
-    target_indices: wp.array(dtype=wp.uint32),
-    integral_max: wp.array(dtype=float),
-    dt: float,
-    current_integral: wp.array(dtype=float),
-    next_integral: wp.array(dtype=float),
-):
-    """Update PID integral state with anti-windup."""
-    i = wp.tid()
-    state_idx = state_indices[i]
-    target_idx = target_indices[i]
-
-    position_error = target_pos[target_idx] - current_pos[state_idx]
-
-    integral = current_integral[i] + position_error * dt
-    integral = wp.clamp(integral, -integral_max[i], integral_max[i])
-
-    next_integral[i] = integral
 
 
 @wp.kernel

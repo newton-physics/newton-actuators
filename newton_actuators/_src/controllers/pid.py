@@ -7,7 +7,7 @@ from typing import Any
 
 import warp as wp
 
-from ..kernels import pid_force_kernel, pid_integral_state_kernel
+from ..kernels import pid_force_kernel
 from .base import Controller
 
 
@@ -61,6 +61,12 @@ class PIDController(Controller):
         self.kd = kd
         self.integral_max = integral_max
         self.constant_force = constant_force
+        self._next_integral: wp.array | None = None
+
+    def set_indices(self, input_indices: wp.array, sequential_indices: wp.array) -> None:
+        num = len(input_indices)
+        device = input_indices.device
+        self._next_integral = wp.zeros(num, dtype=wp.float32, device=device)
 
     def is_stateful(self) -> bool:
         return True
@@ -105,33 +111,12 @@ class PIDController(Controller):
                 dt,
                 state.integral,
             ],
-            outputs=[forces],
+            outputs=[forces, self._next_integral],
         )
 
     def update_state(
         self,
-        positions: wp.array,
-        velocities: wp.array,
-        target_pos: wp.array,
-        target_vel: wp.array,
-        input_indices: wp.array,
-        target_indices: wp.array,
-        num_actuators: int,
         current_state: "PIDController.State",
         next_state: "PIDController.State",
-        dt: float,
     ) -> None:
-        wp.launch(
-            kernel=pid_integral_state_kernel,
-            dim=num_actuators,
-            inputs=[
-                positions,
-                target_pos,
-                input_indices,
-                target_indices,
-                self.integral_max,
-                dt,
-                current_state.integral,
-            ],
-            outputs=[next_state.integral],
-        )
+        wp.copy(next_state.integral, self._next_integral)
