@@ -60,7 +60,6 @@ class NetMLPController(Controller):
         input_idx: list[int] | None = None,
         network: Any = None,
         network_path: str | None = None,
-        device: wp.Device | str | None = None,
     ):
         """Initialize MLP controller.
 
@@ -73,8 +72,6 @@ class NetMLPController(Controller):
                 1 = one step ago, etc. Default [0].
             network: Pre-trained network (torch.nn.Module). If None, loaded from network_path.
             network_path: Path to a TorchScript model file.
-            device: Warp device or device string (e.g. "cuda:0"). Required when
-                using network_path; inferred from network parameters when omitted.
         """
         import torch
 
@@ -91,25 +88,25 @@ class NetMLPController(Controller):
 
         self.network_path = network_path
 
-        if device is not None:
-            wp_device = wp.get_device(device)
-            self._torch_device = torch.device(f"cuda:{wp_device.ordinal}" if wp_device.is_cuda else "cpu")
-        elif network is not None:
+        if network is not None:
             params = list(network.parameters())
             self._torch_device = params[0].device if params else torch.device("cpu")
-        else:
-            self._torch_device = torch.device("cpu")
-
-        if network is not None:
-            self.network = network.to(self._torch_device).eval()
+            self.network = network.eval()
         elif network_path is not None:
-            self.network = torch.jit.load(network_path, map_location=self._torch_device).eval()
+            self._torch_device = torch.device("cpu")
+            self.network = torch.jit.load(network_path, map_location="cpu").eval()
         else:
             raise ValueError("Either 'network' or 'network_path' must be provided")
 
         self._torch_input_indices: Any = None
         self._torch_sequential_indices: Any = None
         self._warp_sequential_indices: wp.array | None = None
+
+    def set_device(self, device: wp.Device) -> None:
+        import torch
+
+        self._torch_device = torch.device(f"cuda:{device.ordinal}" if device.is_cuda else "cpu")
+        self.network = self.network.to(self._torch_device)
 
     def set_indices(self, input_indices: wp.array, sequential_indices: wp.array) -> None:
         import torch

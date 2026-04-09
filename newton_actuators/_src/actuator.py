@@ -126,7 +126,10 @@ class Actuator:
         )
         self._forces = wp.zeros(self.num_actuators, dtype=wp.float32, device=device)
 
+        controller.set_device(device)
         controller.set_indices(input_indices, self._sequential_indices)
+        for dyn in self.dynamics:
+            dyn.set_device(device)
         if self.delay is not None:
             self.delay.set_indices(self.num_actuators, self._sequential_indices)
 

@@ -35,6 +35,17 @@ class Controller:
         """
         raise NotImplementedError(f"{cls.__name__} must implement resolve_arguments")
 
+    def set_device(self, device: wp.Device) -> None:
+        """Called by Actuator to set the target device.
+
+        Override in subclasses that need to place tensors or networks
+        on a specific device (e.g. neural-network controllers).
+
+        Args:
+            device: Warp device to use.
+        """
+        pass
+
     def set_indices(self, input_indices: wp.array, sequential_indices: wp.array) -> None:
         """Called by Actuator to provide DOF index arrays.
 

@@ -35,6 +35,17 @@ class Dynamic:
         """
         raise NotImplementedError(f"{cls.__name__} must implement resolve_arguments")
 
+    def set_device(self, device: wp.Device) -> None:
+        """Called by Actuator to set the target device.
+
+        Override in subclasses that need to allocate device arrays
+        from raw data (e.g. lookup tables).
+
+        Args:
+            device: Warp device to use.
+        """
+        pass
+
     def modify_forces(
         self,
         forces: wp.array,
