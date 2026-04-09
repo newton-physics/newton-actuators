@@ -6,8 +6,17 @@ from typing import Any
 
 import warp as wp
 
-from ..kernels import box_clamp_kernel
 from .base import Dynamic
+
+
+@wp.kernel
+def _box_clamp_kernel(
+    max_force: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
+):
+    """Clamp forces to ±max_force in-place."""
+    i = wp.tid()
+    forces[i] = wp.clamp(forces[i], -max_force[i], max_force[i])
 
 
 class Clamp(Dynamic):
@@ -38,7 +47,7 @@ class Clamp(Dynamic):
         num_actuators: int,
     ) -> None:
         wp.launch(
-            kernel=box_clamp_kernel,
+            kernel=_box_clamp_kernel,
             dim=num_actuators,
             inputs=[self.max_force],
             outputs=[forces],

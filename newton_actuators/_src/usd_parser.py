@@ -30,6 +30,7 @@ def _validate_dc_motor(kwargs: dict[str, Any]) -> None:
         )
 
 
+# Temporary registry until the actual USD schema is merged.
 SCHEMA_REGISTRY: dict[str, SchemaEntry] = {
     "PDControllerAPI": SchemaEntry(
         component_class=PDController,

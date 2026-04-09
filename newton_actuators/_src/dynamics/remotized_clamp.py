@@ -6,8 +6,47 @@ from typing import Any
 import numpy as np
 import warp as wp
 
-from ..kernels import remotized_clamp_kernel
 from .base import Dynamic
+
+
+@wp.func
+def _interp_1d(
+    x: float,
+    xs: wp.array(dtype=float),
+    ys: wp.array(dtype=float),
+    n: int,
+) -> float:
+    """Linearly interpolate (x -> y) from sorted sample arrays, clamping at boundaries."""
+    if n <= 0:
+        return 0.0
+    if x <= xs[0]:
+        return ys[0]
+    if x >= xs[n - 1]:
+        return ys[n - 1]
+    for k in range(n - 1):
+        if xs[k + 1] >= x:
+            dx = xs[k + 1] - xs[k]
+            if dx == 0.0:
+                return ys[k]
+            t = (x - xs[k]) / dx
+            return ys[k] + t * (ys[k + 1] - ys[k])
+    return ys[n - 1]
+
+
+@wp.kernel
+def _remotized_clamp_kernel(
+    current_pos: wp.array(dtype=float),
+    state_indices: wp.array(dtype=wp.uint32),
+    lookup_angles: wp.array(dtype=float),
+    lookup_torques: wp.array(dtype=float),
+    lookup_size: int,
+    forces: wp.array(dtype=float),
+):
+    """Angle-dependent clamping via interpolated lookup table, in-place."""
+    i = wp.tid()
+    state_idx = state_indices[i]
+    limit = _interp_1d(current_pos[state_idx], lookup_angles, lookup_torques, lookup_size)
+    forces[i] = wp.clamp(forces[i], -limit, limit)
 
 
 class RemotizedClamp(Dynamic):
@@ -76,7 +115,7 @@ class RemotizedClamp(Dynamic):
         num_actuators: int,
     ) -> None:
         wp.launch(
-            kernel=remotized_clamp_kernel,
+            kernel=_remotized_clamp_kernel,
             dim=num_actuators,
             inputs=[
                 positions,

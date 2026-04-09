@@ -6,7 +6,37 @@ from typing import Any
 
 import warp as wp
 
-from .kernels import delay_buffer_state_kernel
+
+@wp.kernel
+def _delay_buffer_state_kernel(
+    target_pos_global: wp.array(dtype=float),
+    target_vel_global: wp.array(dtype=float),
+    control_input_global: wp.array(dtype=float),
+    indices: wp.array(dtype=wp.uint32),
+    copy_idx: int,
+    write_idx: int,
+    current_buffer_pos: wp.array2d(dtype=float),
+    current_buffer_vel: wp.array2d(dtype=float),
+    current_buffer_act: wp.array2d(dtype=float),
+    next_buffer_pos: wp.array2d(dtype=float),
+    next_buffer_vel: wp.array2d(dtype=float),
+    next_buffer_act: wp.array2d(dtype=float),
+):
+    """Update delay circular buffer: copy missing entry, write new entry."""
+    i = wp.tid()
+    global_idx = indices[i]
+
+    next_buffer_pos[copy_idx, i] = current_buffer_pos[copy_idx, i]
+    next_buffer_vel[copy_idx, i] = current_buffer_vel[copy_idx, i]
+    next_buffer_act[copy_idx, i] = current_buffer_act[copy_idx, i]
+
+    next_buffer_pos[write_idx, i] = target_pos_global[global_idx]
+    next_buffer_vel[write_idx, i] = target_vel_global[global_idx]
+
+    act = float(0.0)
+    if control_input_global:
+        act = control_input_global[global_idx]
+    next_buffer_act[write_idx, i] = act
 
 
 class Delay:
@@ -106,7 +136,7 @@ class Delay:
         write_idx = (current_state.write_idx + 1) % self.delay
 
         wp.launch(
-            kernel=delay_buffer_state_kernel,
+            kernel=_delay_buffer_state_kernel,
             dim=num_actuators,
             inputs=[
                 target_pos,

@@ -6,8 +6,33 @@ from typing import Any
 
 import warp as wp
 
-from ..kernels import dc_motor_clamp_kernel
 from .base import Dynamic
+
+
+@wp.kernel
+def _dc_motor_clamp_kernel(
+    current_vel: wp.array(dtype=float),
+    state_indices: wp.array(dtype=wp.uint32),
+    saturation_effort: wp.array(dtype=float),
+    velocity_limit: wp.array(dtype=float),
+    max_force: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
+):
+    """DC motor velocity-dependent saturation clamp in-place.
+
+    τ_max(v) = clamp(τ_sat*(1 - v/v_max),  0,  max_force)
+    τ_min(v) = clamp(τ_sat*(-1 - v/v_max), -max_force, 0)
+    """
+    i = wp.tid()
+    state_idx = state_indices[i]
+    vel = current_vel[state_idx]
+    sat = saturation_effort[i]
+    vel_lim = velocity_limit[i]
+    max_f = max_force[i]
+
+    max_torque = wp.clamp(sat * (1.0 - vel / vel_lim), 0.0, max_f)
+    min_torque = wp.clamp(sat * (-1.0 - vel / vel_lim), -max_f, 0.0)
+    forces[i] = wp.clamp(forces[i], min_torque, max_torque)
 
 
 class DCMotorSaturation(Dynamic):
@@ -60,7 +85,7 @@ class DCMotorSaturation(Dynamic):
         num_actuators: int,
     ) -> None:
         wp.launch(
-            kernel=dc_motor_clamp_kernel,
+            kernel=_dc_motor_clamp_kernel,
             dim=num_actuators,
             inputs=[
                 velocities,

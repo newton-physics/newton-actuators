@@ -5,8 +5,43 @@ from typing import Any
 
 import warp as wp
 
-from ..kernels import pd_force_kernel
 from .base import Controller
+
+
+@wp.kernel
+def _pd_force_kernel(
+    current_pos: wp.array(dtype=float),
+    current_vel: wp.array(dtype=float),
+    target_pos: wp.array(dtype=float),
+    target_vel: wp.array(dtype=float),
+    control_input: wp.array(dtype=float),
+    state_indices: wp.array(dtype=wp.uint32),
+    target_indices: wp.array(dtype=wp.uint32),
+    force_indices: wp.array(dtype=wp.uint32),
+    kp: wp.array(dtype=float),
+    kd: wp.array(dtype=float),
+    constant_force: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
+):
+    """PD force: f = constant + act + kp*(target_pos - q) + kd*(target_vel - v)."""
+    i = wp.tid()
+    state_idx = state_indices[i]
+    target_idx = target_indices[i]
+    force_idx = force_indices[i]
+
+    position_error = target_pos[target_idx] - current_pos[state_idx]
+    velocity_error = target_vel[target_idx] - current_vel[state_idx]
+
+    const_f = float(0.0)
+    if constant_force:
+        const_f = constant_force[i]
+
+    act = float(0.0)
+    if control_input:
+        act = control_input[target_idx]
+
+    force = const_f + act + kp[i] * position_error + kd[i] * velocity_error
+    forces[force_idx] = force
 
 
 class PDController(Controller):
@@ -59,7 +94,7 @@ class PDController(Controller):
         dt: float,
     ) -> None:
         wp.launch(
-            kernel=pd_force_kernel,
+            kernel=_pd_force_kernel,
             dim=num_actuators,
             inputs=[
                 positions,

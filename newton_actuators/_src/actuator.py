@@ -12,7 +12,20 @@ import warp as wp
 from .controllers.base import Controller
 from .delay import Delay
 from .dynamics.base import Dynamic
-from .kernels import scatter_add_kernel
+
+
+# TODO: replace with a Transmission class that applies gear ratios / linkage
+# transforms before accumulating into the output array.
+@wp.kernel
+def _scatter_add_kernel(
+    forces: wp.array(dtype=float),
+    output_indices: wp.array(dtype=wp.uint32),
+    output: wp.array(dtype=float),
+):
+    """Accumulate forces into output at specified indices."""
+    i = wp.tid()
+    out_idx = output_indices[i]
+    output[out_idx] = output[out_idx] + forces[i]
 
 
 @dataclass
@@ -135,6 +148,10 @@ class Actuator:
         """Return True if all components can be captured in a CUDA graph."""
         return self.controller.is_graphable() and all(d.is_graphable() for d in self.dynamics)
 
+    def has_transmission(self) -> bool:
+        """Return True if this actuator applies a transmission transform."""
+        return False
+
     def state(self) -> ActuatorState | None:
         """Return a new composed state, or None if fully stateless."""
         if not self.is_stateful():
@@ -233,7 +250,7 @@ class Actuator:
 
             output = getattr(sim_control, self.control_output_attr)
             wp.launch(
-                kernel=scatter_add_kernel,
+                kernel=_scatter_add_kernel,
                 dim=self.num_actuators,
                 inputs=[self._forces, self.output_indices],
                 outputs=[output],

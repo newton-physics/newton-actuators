@@ -7,8 +7,52 @@ from typing import Any
 
 import warp as wp
 
-from ..kernels import pid_force_kernel
 from .base import Controller
+
+
+@wp.kernel
+def _pid_force_kernel(
+    current_pos: wp.array(dtype=float),
+    current_vel: wp.array(dtype=float),
+    target_pos: wp.array(dtype=float),
+    target_vel: wp.array(dtype=float),
+    control_input: wp.array(dtype=float),
+    state_indices: wp.array(dtype=wp.uint32),
+    target_indices: wp.array(dtype=wp.uint32),
+    force_indices: wp.array(dtype=wp.uint32),
+    kp: wp.array(dtype=float),
+    ki: wp.array(dtype=float),
+    kd: wp.array(dtype=float),
+    integral_max: wp.array(dtype=float),
+    constant_force: wp.array(dtype=float),
+    dt: float,
+    current_integral: wp.array(dtype=float),
+    forces: wp.array(dtype=float),
+    next_integral: wp.array(dtype=float),
+):
+    """PID force: f = constant + act + kp*e + ki*integral + kd*de."""
+    i = wp.tid()
+    state_idx = state_indices[i]
+    target_idx = target_indices[i]
+    force_idx = force_indices[i]
+
+    position_error = target_pos[target_idx] - current_pos[state_idx]
+    velocity_error = target_vel[target_idx] - current_vel[state_idx]
+
+    integral = current_integral[i] + position_error * dt
+    integral = wp.clamp(integral, -integral_max[i], integral_max[i])
+
+    const_f = float(0.0)
+    if constant_force:
+        const_f = constant_force[i]
+
+    act = float(0.0)
+    if control_input:
+        act = control_input[target_idx]
+
+    force = const_f + act + kp[i] * position_error + ki[i] * integral + kd[i] * velocity_error
+    forces[force_idx] = force
+    next_integral[i] = integral
 
 
 class PIDController(Controller):
@@ -92,7 +136,7 @@ class PIDController(Controller):
         dt: float,
     ) -> None:
         wp.launch(
-            kernel=pid_force_kernel,
+            kernel=_pid_force_kernel,
             dim=num_actuators,
             inputs=[
                 positions,
