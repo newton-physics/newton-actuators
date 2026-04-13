@@ -77,7 +77,7 @@ class Actuator:
             indices=indices,
             controller=ControllerPD(kp=kp, kd=kd),
             delay=Delay(delay=5),
-            clamping=[ClampMaxForce(max_force=max_f)],
+            clamping=[ClampingMaxForce(max_force=max_f)],
         )
 
         # Simulation loop

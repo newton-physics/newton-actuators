@@ -60,7 +60,7 @@ class ControllerPID(Controller):
 
     Force law: f = constant + act + Kp*e + Ki*∫e·dt + Kd*de
 
-    Maintains an integral term with anti-windup clamping.
+    Maintains an integral term with integral clamping.
     """
 
     @dataclass

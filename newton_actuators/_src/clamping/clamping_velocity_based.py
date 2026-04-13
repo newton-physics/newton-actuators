@@ -19,7 +19,7 @@ def _clamp_velocity_based_kernel(
     src: wp.array(dtype=float),
     dst: wp.array(dtype=float),
 ):
-    """DC motor velocity-dependent saturation: read src, write to dst.
+    """Velocity-dependent saturation: read src, write to dst.
 
     τ_max(v) = clamp(τ_sat*(1 - v/v_max),  0,  max_force)
     τ_min(v) = clamp(τ_sat*(-1 - v/v_max), -max_force, 0)
@@ -37,23 +37,21 @@ def _clamp_velocity_based_kernel(
 
 
 class ClampingVelocityBased(Clamping):
-    """DC motor velocity-dependent torque saturation.
+    """Velocity-dependent torque–speed saturation.
 
     Clips controller output using the torque–speed characteristic:
         τ_max(v) = clamp(τ_sat*(1 - v/v_max),  0,  effort_limit)
         τ_min(v) = clamp(τ_sat*(-1 - v/v_max), -effort_limit, 0)
 
-    At zero velocity the motor can produce up to ±τ_sat (capped by
+    At zero velocity the actuator can produce up to ±τ_sat (capped by
     effort_limit). As velocity approaches v_max, available torque in
     the direction of motion drops to zero.
-
-    This is a post-controller dynamic.
     """
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
         if "velocity_limit" not in args:
-            raise ValueError("ClampVelocityBased requires 'velocity_limit' argument")
+            raise ValueError("ClampingVelocityBased requires 'velocity_limit' argument")
         return {
             "saturation_effort": args.get("saturation_effort", math.inf),
             "velocity_limit": args["velocity_limit"],
@@ -66,7 +64,7 @@ class ClampingVelocityBased(Clamping):
         velocity_limit: wp.array,
         max_force: wp.array,
     ):
-        """Initialize DC motor saturation dynamic.
+        """Initialize velocity-based torque saturation.
 
         Args:
             saturation_effort: Peak motor torque at stall. Shape (N,).
