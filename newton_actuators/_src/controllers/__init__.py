@@ -2,15 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .base import Controller
-from .net_lstm import NetLSTMController
-from .net_mlp import NetMLPController
-from .pd import PDController
-from .pid import PIDController
+from .controller_net_lstm import ControllerNetLSTM
+from .controller_net_mlp import ControllerNetMLP
+from .controller_pd import ControllerPD
+from .controller_pid import ControllerPID
 
 __all__ = [
     "Controller",
-    "NetLSTMController",
-    "NetMLPController",
-    "PDController",
-    "PIDController",
+    "ControllerNetLSTM",
+    "ControllerNetMLP",
+    "ControllerPD",
+    "ControllerPID",
 ]

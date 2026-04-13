@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 The Newton Developers
+# SPDX-FileCopyrightText: Copyright (c) 2025 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
@@ -9,57 +9,64 @@ import warp as wp
 from .base import Controller
 
 
-class NetLSTMController(Controller):
-    """LSTM-based neural network controller.
+class ControllerNetMLP(Controller):
+    """MLP-based neural network controller.
 
-    Uses a pre-trained LSTM network to compute joint torques from position
-    error and velocity. The network maintains hidden and cell state across
-    timesteps to capture temporal patterns.
+    Uses a pre-trained MLP to compute joint torques from position error
+    and velocity history.
 
-    The network must be callable as:
-        torques, (h_new, c_new) = network(input, (h, c))
-
-    where input has shape (batch, 1, 2) with features [pos_error, velocity],
-    and h/c have shape (num_layers, batch, hidden_size).
-
-    The network is expected to have a ``lstm`` attribute (torch.nn.LSTM) so
-    that num_layers and hidden_size can be inferred automatically.
+    The network receives concatenated position-error and velocity history
+    as input and is expected to return torques in physical units. Scaling is left to the user.
     """
 
     SHARED_PARAMS = {"network_path"}
 
     @dataclass
     class State:
-        """LSTM hidden and cell state."""
+        """History buffers for MLP controller."""
 
-        hidden: Any = None
-        cell: Any = None
+        pos_error_history: Any = None
+        vel_history: Any = None
 
         def reset(self) -> None:
-            self.hidden = self.hidden.new_zeros(self.hidden.shape)
-            self.cell = self.cell.new_zeros(self.cell.shape)
+            self.pos_error_history.zero_()
+            self.vel_history.zero_()
 
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
         if "network_path" not in args:
-            raise ValueError("NetLSTMController requires 'network_path' argument")
+            raise ValueError("ControllerNetMLP requires 'network_path' argument")
         return {
             "network_path": args["network_path"],
+            "input_order": args.get("input_order", "pos_vel"),
+            "input_idx": args.get("input_idx", None),
         }
 
     def __init__(
         self,
+        input_order: str = "pos_vel",
+        input_idx: list[int] | None = None,
         network: Any = None,
         network_path: str | None = None,
     ):
-        """Initialize LSTM controller.
+        """Initialize MLP controller.
 
         Args:
-            network: Pre-trained LSTM network (torch.nn.Module).
-                If None, loaded from network_path.
+            input_order: Concatenation order, "pos_vel" or "vel_pos".
+            input_idx: History timestep indices to feed the network. 0 = current,
+                1 = one step ago, etc. Default [0].
+            network: Pre-trained network (torch.nn.Module). If None, loaded from network_path.
             network_path: Path to a TorchScript model file.
         """
         import torch
+
+        if input_order not in ("pos_vel", "vel_pos"):
+            raise ValueError(f"input_order must be 'pos_vel' or 'vel_pos'; got '{input_order}'")
+        self.input_order = input_order
+        self.input_idx = input_idx if input_idx else [0]
+        if any(i < 0 for i in self.input_idx):
+            raise ValueError(f"input_idx must contain non-negative integers; got {self.input_idx}")
+        self.history_length = max(self.input_idx) + 1
 
         self.network_path = network_path
 
@@ -73,28 +80,9 @@ class NetLSTMController(Controller):
         else:
             raise ValueError("Either 'network' or 'network_path' must be provided")
 
-        if not hasattr(self.network, "lstm"):
-            raise ValueError("network must expose a 'lstm' attribute (torch.nn.LSTM)")
-        lstm = self.network.lstm
-        if not hasattr(lstm, "num_layers"):
-            raise ValueError("network.lstm must be a torch.nn.LSTM (missing num_layers)")
-        if not lstm.batch_first:
-            raise ValueError("network.lstm.batch_first must be True")
-        if lstm.input_size != 2:
-            raise ValueError(f"network.lstm.input_size must be 2 (pos_error, velocity); got {lstm.input_size}")
-        if lstm.bidirectional:
-            raise ValueError("network.lstm must not be bidirectional")
-        if getattr(lstm, "proj_size", 0) != 0:
-            raise ValueError(f"network.lstm.proj_size must be 0; got {lstm.proj_size}")
-
-        self._num_layers = lstm.num_layers
-        self._hidden_size = lstm.hidden_size
-
         self._torch_input_indices: Any = None
         self._torch_sequential_indices: Any = None
         self._warp_sequential_indices: wp.array | None = None
-        self._hidden: Any = None
-        self._cell: Any = None
 
     def set_device(self, device: wp.Device) -> None:
         import torch
@@ -115,12 +103,12 @@ class NetLSTMController(Controller):
     def is_graphable(self) -> bool:
         return False
 
-    def state(self, num_actuators: int, device: wp.Device) -> "NetLSTMController.State":
+    def state(self, num_actuators: int, device: wp.Device) -> "ControllerNetMLP.State":
         import torch
 
-        return NetLSTMController.State(
-            hidden=torch.zeros(self._num_layers, num_actuators, self._hidden_size, device=self._torch_device),
-            cell=torch.zeros(self._num_layers, num_actuators, self._hidden_size, device=self._torch_device),
+        return ControllerNetMLP.State(
+            pos_error_history=torch.zeros(self.history_length, num_actuators, device=self._torch_device),
+            vel_history=torch.zeros(self.history_length, num_actuators, device=self._torch_device),
         )
 
     def compute(
@@ -135,7 +123,7 @@ class NetLSTMController(Controller):
         forces: wp.array,
         force_indices: wp.array,
         num_actuators: int,
-        state: "NetLSTMController.State",
+        state: "ControllerNetMLP.State",
         dt: float,
     ) -> None:
         import torch
@@ -153,14 +141,19 @@ class NetLSTMController(Controller):
         pos_error = target[torch_target_idx] - current_pos[self._torch_input_indices]
         vel = current_vel[self._torch_input_indices]
 
-        # (num_actuators, 1, 2): seq_len=1, features=[pos_error, velocity]
-        net_input = torch.stack([pos_error, vel], dim=1).unsqueeze(1)
+        state.pos_error_history[0] = pos_error
+        state.vel_history[0] = vel
+
+        pos_input = torch.stack([state.pos_error_history[i] for i in self.input_idx], dim=1)
+        vel_input = torch.stack([state.vel_history[i] for i in self.input_idx], dim=1)
+
+        if self.input_order == "pos_vel":
+            net_input = torch.cat([pos_input, vel_input], dim=1)
+        else:
+            net_input = torch.cat([vel_input, pos_input], dim=1)
 
         with torch.inference_mode():
-            torques, (self._hidden, self._cell) = self.network(
-                net_input,
-                (state.hidden, state.cell),
-            )
+            torques = self.network(net_input)
 
         torques = torques.reshape(num_actuators)
         torques_wp = wp.from_torch(torques.contiguous(), dtype=wp.float32)
@@ -168,10 +161,10 @@ class NetLSTMController(Controller):
 
     def update_state(
         self,
-        current_state: "NetLSTMController.State",
-        next_state: "NetLSTMController.State",
+        current_state: "ControllerNetMLP.State",
+        next_state: "ControllerNetMLP.State",
     ) -> None:
         if next_state is None:
             return
-        next_state.hidden = self._hidden
-        next_state.cell = self._cell
+        next_state.pos_error_history = current_state.pos_error_history.roll(1, 0)
+        next_state.vel_history = current_state.vel_history.roll(1, 0)

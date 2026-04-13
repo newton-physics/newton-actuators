@@ -3,33 +3,47 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import warp as wp
 
+from .clamping.base import Clamping
 from .controllers.base import Controller
 from .delay import Delay
-from .clamping.base import Clamping
 
 
-# TODO: replace with a Transmission class that applies gear ratios / linkage
-# transforms before accumulating into the output array.
+# TODO: replace with a Transmission class that does J multiplication before accumulating into the output array.
 @wp.kernel
 def _scatter_add_kernel(
     forces: wp.array(dtype=float),
-    output_indices: wp.array(dtype=wp.uint32),
+    indices: wp.array(dtype=wp.uint32),
     output: wp.array(dtype=float),
 ):
-    """Accumulate forces into output at specified indices."""
+    """Scatter-add forces into output at specified indices."""
     i = wp.tid()
-    out_idx = output_indices[i]
-    output[out_idx] = output[out_idx] + forces[i]
+    idx = indices[i]
+    output[idx] = output[idx] + forces[i]
+
+
+@wp.kernel
+def _scatter_add_dual_kernel(
+    applied_forces: wp.array(dtype=float),
+    computed_forces: wp.array(dtype=float),
+    indices: wp.array(dtype=wp.uint32),
+    applied_output: wp.array(dtype=float),
+    computed_output: wp.array(dtype=float),
+):
+    """Scatter-add both applied and computed forces in one pass."""
+    i = wp.tid()
+    idx = indices[i]
+    applied_output[idx] = applied_output[idx] + applied_forces[i]
+    computed_output[idx] = computed_output[idx] + computed_forces[i]
 
 
 @dataclass
-class ActuatorState:
+class StateActuator:
     """Composed state for an Actuator.
 
     Holds the controller state and, if a delay is present, the delay
@@ -60,21 +74,18 @@ class Actuator:
     Usage::
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(kp=kp, kd=kd),
+            indices=indices,
+            controller=ControllerPD(kp=kp, kd=kd),
             delay=Delay(delay=5),
-            clamping=[Clamp(max_force=max_f)],
+            clamping=[ClampMaxForce(max_force=max_f)],
         )
 
         # Simulation loop
         actuator.step(sim_state, sim_control, state_a, state_b, dt=0.01)
 
     Args:
-        input_indices: DOF indices for reading state and targets. Shape (N,)
-            for single-input or (N, M) for multi-input actuators.
-        output_indices: DOF indices for writing output forces. Shape (N,)
-            for single-output or (N, M) for multi-output actuators.
+        indices: DOF indices for reading state/targets and writing forces.
+            Shape (N,).
         controller: Controller that computes raw forces.
         delay: Optional Delay instance for input delay.
         clamping: List of Clamping objects (post-controller force bounds).
@@ -83,13 +94,14 @@ class Actuator:
         control_target_pos_attr: Attribute on sim_control for target positions.
         control_target_vel_attr: Attribute on sim_control for target velocities.
         control_input_attr: Attribute on sim_control for control input. None to skip.
-        control_output_attr: Attribute on sim_control for output forces.
+        control_output_attr: Attribute on sim_control for clamped output forces.
+        control_computed_output_attr: Attribute on sim_control for raw (pre-clamp)
+            forces. None to skip writing computed forces.
     """
 
     def __init__(
         self,
-        input_indices: wp.array,
-        output_indices: wp.array,
+        indices: wp.array,
         controller: Controller,
         delay: Delay | None = None,
         clamping: list[Clamping] | None = None,
@@ -99,19 +111,13 @@ class Actuator:
         control_target_vel_attr: str = "joint_target_vel",
         control_input_attr: str | None = "joint_act",
         control_output_attr: str = "joint_f",
+        control_computed_output_attr: str | None = None,
     ):
-        self.input_indices = input_indices
-        self.output_indices = output_indices
+        self.indices = indices
         self.controller = controller
         self.delay = delay
         self.clamping = clamping or []
-        self.num_actuators = len(input_indices)
-
-        if len(output_indices) != self.num_actuators:
-            raise ValueError(
-                f"output_indices length ({len(output_indices)}) must match "
-                f"input_indices length ({self.num_actuators})"
-            )
+        self.num_actuators = len(indices)
 
         self.state_pos_attr = state_pos_attr
         self.state_vel_attr = state_vel_attr
@@ -119,15 +125,17 @@ class Actuator:
         self.control_target_vel_attr = control_target_vel_attr
         self.control_input_attr = control_input_attr
         self.control_output_attr = control_output_attr
+        self.control_computed_output_attr = control_computed_output_attr
 
-        device = input_indices.device
+        device = indices.device
         self._sequential_indices = wp.array(
             np.arange(self.num_actuators, dtype=np.uint32), device=device
         )
-        self._forces = wp.zeros(self.num_actuators, dtype=wp.float32, device=device)
+        self._computed_forces = wp.zeros(self.num_actuators, dtype=wp.float32, device=device)
+        self._applied_forces = wp.zeros(self.num_actuators, dtype=wp.float32, device=device)
 
         controller.set_device(device)
-        controller.set_indices(input_indices, self._sequential_indices)
+        controller.set_indices(indices, self._sequential_indices)
         for clamp in self.clamping:
             clamp.set_device(device)
         if self.delay is not None:
@@ -151,16 +159,12 @@ class Actuator:
         """Return True if all components can be captured in a CUDA graph."""
         return self.controller.is_graphable() and all(c.is_graphable() for c in self.clamping)
 
-    def has_transmission(self) -> bool:
-        """Return True if this actuator applies a transmission transform."""
-        return False
-
-    def state(self) -> ActuatorState | None:
+    def state(self) -> StateActuator | None:
         """Return a new composed state, or None if fully stateless."""
         if not self.is_stateful():
             return None
-        device = self.input_indices.device
-        return ActuatorState(
+        device = self.indices.device
+        return StateActuator(
             controller_state=(
                 self.controller.state(self.num_actuators, device)
                 if self.controller.is_stateful()
@@ -177,16 +181,17 @@ class Actuator:
         self,
         sim_state: Any,
         sim_control: Any,
-        current_act_state: ActuatorState | None = None,
-        next_act_state: ActuatorState | None = None,
+        current_act_state: StateActuator | None = None,
+        next_act_state: StateActuator | None = None,
         dt: float = None,
     ) -> None:
         """Execute one control step.
 
         1. **Delay** — read delayed targets from buffer.
-        2. **Controller** — compute raw forces.
-        3. **Clamping** — bound forces and scatter-add to output.
-        4. **State updates** — update delay buffer and controller state.
+        2. **Controller** — compute raw forces into ``_computed_forces``.
+        3. **Clamping** — bound forces from computed → ``_applied_forces``.
+        4. **Scatter** — add applied (and optionally computed) forces to output.
+        5. **State updates** — update delay buffer and controller state.
 
         If the delay buffer is still filling, steps 2-3 are skipped
         (no forces produced) but the buffer keeps accumulating.
@@ -212,7 +217,7 @@ class Actuator:
         target_pos = orig_target_pos
         target_vel = orig_target_vel
         act_input = orig_act_input
-        target_indices = self.input_indices
+        target_indices = self.indices
 
         # --- 1. Delay: read delayed targets ---
         skip_compute = False
@@ -227,7 +232,7 @@ class Actuator:
                 skip_compute = True
 
         if not skip_compute:
-            # --- 2. Controller: compute forces ---
+            # --- 2. Controller: compute raw forces ---
             ctrl_state = current_act_state.controller_state if current_act_state else None
             self.controller.compute(
                 positions,
@@ -235,31 +240,50 @@ class Actuator:
                 target_pos,
                 target_vel,
                 act_input,
-                self.input_indices,
+                self.indices,
                 target_indices,
-                self._forces,
+                self._computed_forces,
                 self._sequential_indices,
                 self.num_actuators,
                 ctrl_state,
                 dt,
             )
 
-            # --- 3. Clamping: bound forces + write output ---
-            for clamp in self.clamping:
-                clamp.modify_forces(
-                    self._forces, positions, velocities,
-                    self.input_indices, self.num_actuators,
+            # --- 3. Clamping: computed → applied (fused copy+clamp) ---
+            if self.clamping:
+                src = self._computed_forces
+                for clamp in self.clamping:
+                    clamp.modify_forces(
+                        src, self._applied_forces, positions, velocities,
+                        self.indices, self.num_actuators,
+                    )
+                    src = self._applied_forces
+            else:
+                wp.copy(self._applied_forces, self._computed_forces)
+
+            # --- 4. Scatter-add applied (+ optionally computed) to output ---
+            applied_output = getattr(sim_control, self.control_output_attr)
+            if self.control_computed_output_attr is not None:
+                computed_output = getattr(sim_control, self.control_computed_output_attr)
+                wp.launch(
+                    kernel=_scatter_add_dual_kernel,
+                    dim=self.num_actuators,
+                    inputs=[
+                        self._applied_forces,
+                        self._computed_forces,
+                        self.indices,
+                    ],
+                    outputs=[applied_output, computed_output],
+                )
+            else:
+                wp.launch(
+                    kernel=_scatter_add_kernel,
+                    dim=self.num_actuators,
+                    inputs=[self._applied_forces, self.indices],
+                    outputs=[applied_output],
                 )
 
-            output = getattr(sim_control, self.control_output_attr)
-            wp.launch(
-                kernel=_scatter_add_kernel,
-                dim=self.num_actuators,
-                inputs=[self._forces, self.output_indices],
-                outputs=[output],
-            )
-
-        # --- 4. State updates ---
+        # --- 5. State updates ---
         if has_states:
             if self.controller.is_stateful() and not skip_compute:
                 self.controller.update_state(
@@ -270,7 +294,7 @@ class Actuator:
             if self.delay is not None:
                 self.delay.update_state(
                     orig_target_pos, orig_target_vel, orig_act_input,
-                    self.input_indices, self.num_actuators,
+                    self.indices, self.num_actuators,
                     current_act_state.delay_state,
                     next_act_state.delay_state,
                     dt,

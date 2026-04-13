@@ -11,8 +11,8 @@ class Clamping:
 
     Clamping objects are stacked on top of a controller to bound
     output forces — symmetric limits, velocity-dependent saturation,
-    angle-dependent torque curves, etc. They modify forces in-place
-    after the controller has computed them.
+    angle-dependent torque curves, etc. They read from a source force
+    buffer and write bounded values to a destination buffer.
 
     For input delay, use the ``Delay`` class (passed separately to the
     Actuator, not as a Clamping).
@@ -49,16 +49,23 @@ class Clamping:
 
     def modify_forces(
         self,
-        forces: wp.array,
+        src_forces: wp.array,
+        dst_forces: wp.array,
         positions: wp.array,
         velocities: wp.array,
         input_indices: wp.array,
         num_actuators: int,
     ) -> None:
-        """Modify forces in-place after the controller has computed them.
+        """Read forces from src, apply clamping, write to dst.
+
+        When src and dst are the same array, this is an in-place update.
+        The Actuator uses different arrays for the first clamping
+        (to preserve the raw controller output) and the same array
+        for subsequent clampings.
 
         Args:
-            forces: Force buffer to modify. Shape (N,).
+            src_forces: Input force buffer to read. Shape (N,).
+            dst_forces: Output force buffer to write. Shape (N,).
             positions: Joint positions (global array).
             velocities: Joint velocities (global array).
             input_indices: Indices into positions/velocities.

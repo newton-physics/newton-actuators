@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 The Newton Developers
+# SPDX-FileCopyrightText: Copyright (c) 2025 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
 from typing import Any
@@ -40,16 +40,17 @@ def _remotized_clamp_kernel(
     lookup_angles: wp.array(dtype=float),
     lookup_torques: wp.array(dtype=float),
     lookup_size: int,
-    forces: wp.array(dtype=float),
+    src: wp.array(dtype=float),
+    dst: wp.array(dtype=float),
 ):
-    """Angle-dependent clamping via interpolated lookup table, in-place."""
+    """Angle-dependent clamping via interpolated lookup table: read src, write dst."""
     i = wp.tid()
     state_idx = state_indices[i]
     limit = _interp_1d(current_pos[state_idx], lookup_angles, lookup_torques, lookup_size)
-    forces[i] = wp.clamp(forces[i], -limit, limit)
+    dst[i] = wp.clamp(src[i], -limit, limit)
 
 
-class RemotizedClamp(Clamping):
+class ClampingPositionBased(Clamping):
     """Angle-dependent torque clamping via lookup table.
 
     Replaces a fixed ±max_force box clamp with angle-dependent torque
@@ -65,7 +66,7 @@ class RemotizedClamp(Clamping):
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
         if "lookup_angles" not in args or "lookup_torques" not in args:
-            raise ValueError("RemotizedClamp requires 'lookup_angles' and 'lookup_torques' arguments")
+            raise ValueError("ClampPositionBased requires 'lookup_angles' and 'lookup_torques' arguments")
         return {
             "lookup_angles": tuple(args["lookup_angles"]),
             "lookup_torques": tuple(args["lookup_torques"]),
@@ -110,7 +111,8 @@ class RemotizedClamp(Clamping):
 
     def modify_forces(
         self,
-        forces: wp.array,
+        src_forces: wp.array,
+        dst_forces: wp.array,
         positions: wp.array,
         velocities: wp.array,
         input_indices: wp.array,
@@ -125,6 +127,7 @@ class RemotizedClamp(Clamping):
                 self.lookup_angles,
                 self.lookup_torques,
                 self.lookup_size,
+                src_forces,
             ],
-            outputs=[forces],
+            outputs=[dst_forces],
         )

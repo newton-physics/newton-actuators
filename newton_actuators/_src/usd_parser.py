@@ -6,9 +6,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .controllers import NetLSTMController, NetMLPController, PDController, PIDController
+from .clamping import ClampingMaxForce, ClampingVelocityBased
+from .controllers import ControllerNetLSTM, ControllerNetMLP, ControllerPD, ControllerPID
 from .delay import Delay
-from .clamping import Clamp, DCMotorSaturation
 
 
 @dataclass
@@ -21,48 +21,48 @@ class SchemaEntry:
     validate: Any = None
 
 
-def _validate_dc_motor(kwargs: dict[str, Any]) -> None:
+def _validate_clamp_velocity_based(kwargs: dict[str, Any]) -> None:
     vel_lim = kwargs.get("velocity_limit")
     if vel_lim is not None and vel_lim <= 0.0:
         raise ValueError(
-            f"DCMotorAPI requires velocity_limit > 0 (division by velocity_limit "
-            f"in saturation computation); got {vel_lim}"
+            f"ClampingVelocityBasedAPI requires velocity_limit > 0 (division by velocity_limit "
+            f"in torque-speed computation); got {vel_lim}"
         )
 
 
 # Temporary registry until the actual USD schema is merged.
 SCHEMA_REGISTRY: dict[str, SchemaEntry] = {
-    "PDControllerAPI": SchemaEntry(
-        component_class=PDController,
+    "ControllerPDAPI": SchemaEntry(
+        component_class=ControllerPD,
         param_map={"kp": "kp", "kd": "kd", "constForce": "constant_force"},
         is_controller=True,
     ),
-    "PIDControllerAPI": SchemaEntry(
-        component_class=PIDController,
+    "ControllerPIDAPI": SchemaEntry(
+        component_class=ControllerPID,
         param_map={"kp": "kp", "ki": "ki", "kd": "kd", "integralMax": "integral_max", "constForce": "constant_force"},
         is_controller=True,
     ),
-    "ClampAPI": SchemaEntry(
-        component_class=Clamp,
+    "ClampingMaxForceAPI": SchemaEntry(
+        component_class=ClampingMaxForce,
         param_map={"maxForce": "max_force"},
     ),
     "DelayAPI": SchemaEntry(
         component_class=Delay,
         param_map={"delay": "delay"},
     ),
-    "DCMotorAPI": SchemaEntry(
-        component_class=DCMotorSaturation,
+    "ClampingVelocityBasedAPI": SchemaEntry(
+        component_class=ClampingVelocityBased,
         param_map={"saturationEffort": "saturation_effort", "velocityLimit": "velocity_limit", "maxForce": "max_force"},
-        validate=_validate_dc_motor,
+        validate=_validate_clamp_velocity_based,
     ),
     # Neural-network controllers
-    "NetMLPControllerAPI": SchemaEntry(
-        component_class=NetMLPController,
+    "ControllerNetMLPAPI": SchemaEntry(
+        component_class=ControllerNetMLP,
         param_map={"networkPath": "network_path"},
         is_controller=True,
     ),
-    "NetLSTMControllerAPI": SchemaEntry(
-        component_class=NetLSTMController,
+    "ControllerNetLSTMAPI": SchemaEntry(
+        component_class=ControllerNetLSTM,
         param_map={"networkPath": "network_path"},
         is_controller=True,
     ),
@@ -82,7 +82,6 @@ class ParsedActuator:
     controller_kwargs: dict[str, Any] = field(default_factory=dict)
     component_specs: list[tuple[type, dict[str, Any]]] = field(default_factory=list)
     target_paths: list[str] = field(default_factory=list)
-    transmission: list[float] | None = None
 
 
 def get_attribute(prim, name: str, default: Any = None) -> Any:
@@ -125,8 +124,6 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
         return None
 
     schemas = get_schemas_from_prim(prim)
-    transmission = get_attribute(prim, "newton:actuator:transmission")
-
     controller_class = None
     controller_kwargs: dict[str, Any] = {}
     component_specs: list[tuple[type, dict[str, Any]]] = []
@@ -167,5 +164,4 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
         controller_kwargs=controller_kwargs,
         component_specs=component_specs,
         target_paths=target_paths,
-        transmission=list(transmission) if transmission else None,
     )

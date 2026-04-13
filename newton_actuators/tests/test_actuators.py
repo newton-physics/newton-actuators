@@ -10,12 +10,12 @@ import warp as wp
 
 from newton_actuators import (
     Actuator,
-    Clamp,
-    DCMotorSaturation,
+    ClampingMaxForce,
+    ClampingPositionBased,
+    ClampingVelocityBased,
+    ControllerPD,
+    ControllerPID,
     Delay,
-    PDController,
-    PIDController,
-    RemotizedClamp,
 )
 
 _HAS_TORCH = importlib.util.find_spec("torch") is not None
@@ -39,18 +39,19 @@ class MockSimControl:
     joint_target_vel: wp.array
     joint_act: wp.array
     joint_f: wp.array
+    joint_f_computed: wp.array = None
     tendon_target_length: wp.array = None
     tendon_target_vel: wp.array = None
     tendon_force: wp.array = None
 
 
 # ---------------------------------------------------------------------------
-# PD Controller + Clamp
+# PD Controller + ClampingMaxForce
 # ---------------------------------------------------------------------------
 
 
-class TestPDWithClamp(unittest.TestCase):
-    """Tests for PDController + Clamp (replaces old ActuatorPD)."""
+class TestPDWithClampingMaxForce(unittest.TestCase):
+    """Tests for ControllerPD + ClampingMaxForce (replaces old ActuatorPD)."""
 
     def setUp(self):
         wp.init()
@@ -58,14 +59,13 @@ class TestPDWithClamp(unittest.TestCase):
     def test_creation(self):
         indices = wp.array([0, 1, 2], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
             ),
             clamping=[
-                Clamp(max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32)),
+                ClampingMaxForce(max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32)),
             ],
         )
         self.assertIsInstance(actuator, Actuator)
@@ -78,14 +78,13 @@ class TestPDWithClamp(unittest.TestCase):
         indices = wp.array([0, 1, 2], dtype=wp.uint32)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([0.0, 0.0, 0.0], dtype=wp.float32),
             ),
             clamping=[
-                Clamp(max_force=wp.array([1000.0, 1000.0, 1000.0], dtype=wp.float32)),
+                ClampingMaxForce(max_force=wp.array([1000.0, 1000.0, 1000.0], dtype=wp.float32)),
             ],
         )
 
@@ -108,9 +107,8 @@ class TestPDWithClamp(unittest.TestCase):
         """PD controller without any clamping produces unclamped forces."""
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
@@ -132,19 +130,19 @@ class TestPDWithClamp(unittest.TestCase):
         self.assertAlmostEqual(force, 1000.0, places=3)
 
     def test_resolve_arguments(self):
-        resolved = PDController.resolve_arguments({"kp": 50.0})
+        resolved = ControllerPD.resolve_arguments({"kp": 50.0})
         self.assertEqual(resolved["kp"], 50.0)
         self.assertEqual(resolved["kd"], 0.0)
         self.assertEqual(resolved["constant_force"], 0.0)
 
 
 # ---------------------------------------------------------------------------
-# PD Controller + Delay + Clamp
+# PD Controller + Delay + ClampingMaxForce
 # ---------------------------------------------------------------------------
 
 
 class TestPDWithDelay(unittest.TestCase):
-    """Tests for PDController + Delay + Clamp (replaces old ActuatorDelayedPD)."""
+    """Tests for ControllerPD + Delay + ClampingMaxForce (replaces old ActuatorDelayedPD)."""
 
     def setUp(self):
         wp.init()
@@ -152,15 +150,14 @@ class TestPDWithDelay(unittest.TestCase):
     def test_creation(self):
         indices = wp.array([0, 1], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             delay=Delay(delay=5),
             clamping=[
-                Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
+                ClampingMaxForce(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
             ],
         )
         self.assertIsInstance(actuator, Actuator)
@@ -172,9 +169,8 @@ class TestPDWithDelay(unittest.TestCase):
         num_dofs = 2
         indices = wp.array([0, 1], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
@@ -201,15 +197,14 @@ class TestPDWithDelay(unittest.TestCase):
         indices = wp.array([0], dtype=wp.uint32)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([1.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
             clamping=[
-                Clamp(max_force=wp.array([1000.0], dtype=wp.float32)),
+                ClampingMaxForce(max_force=wp.array([1000.0], dtype=wp.float32)),
             ],
         )
 
@@ -251,12 +246,12 @@ class TestPDWithDelay(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# PID Controller + Clamp
+# PID Controller + ClampingMaxForce
 # ---------------------------------------------------------------------------
 
 
-class TestPIDWithClamp(unittest.TestCase):
-    """Tests for PIDController + Clamp (replaces old ActuatorPID)."""
+class TestPIDWithClampingMaxForce(unittest.TestCase):
+    """Tests for ControllerPID + ClampingMaxForce (replaces old ActuatorPID)."""
 
     def setUp(self):
         wp.init()
@@ -264,16 +259,15 @@ class TestPIDWithClamp(unittest.TestCase):
     def test_creation(self):
         indices = wp.array([0, 1], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PIDController(
+            indices=indices,
+            controller=ControllerPID(
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 ki=wp.array([10.0, 10.0], dtype=wp.float32),
                 kd=wp.array([5.0, 5.0], dtype=wp.float32),
                 integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             clamping=[
-                Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
+                ClampingMaxForce(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
             ],
         )
         self.assertIsInstance(actuator, Actuator)
@@ -284,16 +278,15 @@ class TestPIDWithClamp(unittest.TestCase):
         num_dofs = 2
         indices = wp.array([0, 1], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PIDController(
+            indices=indices,
+            controller=ControllerPID(
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 ki=wp.array([10.0, 10.0], dtype=wp.float32),
                 kd=wp.array([5.0, 5.0], dtype=wp.float32),
                 integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             clamping=[
-                Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
+                ClampingMaxForce(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
             ],
         )
 
@@ -305,12 +298,12 @@ class TestPIDWithClamp(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# PD Controller + DCMotorSaturation
+# PD Controller + ClampingVelocityBased
 # ---------------------------------------------------------------------------
 
 
 class TestPDWithDCMotor(unittest.TestCase):
-    """Tests for PDController + DCMotorSaturation (replaces old ActuatorDCMotor)."""
+    """Tests for ControllerPD + ClampingVelocityBased (replaces old ActuatorDCMotor)."""
 
     def setUp(self):
         wp.init()
@@ -318,14 +311,13 @@ class TestPDWithDCMotor(unittest.TestCase):
     def test_creation(self):
         indices = wp.array([0, 1], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             clamping=[
-                DCMotorSaturation(
+                ClampingVelocityBased(
                     saturation_effort=wp.array([80.0, 80.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0, 10.0], dtype=wp.float32),
                     max_force=wp.array([50.0, 50.0], dtype=wp.float32),
@@ -339,23 +331,22 @@ class TestPDWithDCMotor(unittest.TestCase):
 
     def test_requires_velocity_limit(self):
         with self.assertRaises(ValueError):
-            DCMotorSaturation.resolve_arguments({"kp": 50.0})
+            ClampingVelocityBased.resolve_arguments({"kp": 50.0})
 
     def test_resolve_arguments(self):
-        resolved = DCMotorSaturation.resolve_arguments({"kp": 50.0, "velocity_limit": 10.0})
+        resolved = ClampingVelocityBased.resolve_arguments({"kp": 50.0, "velocity_limit": 10.0})
         self.assertEqual(resolved["velocity_limit"], 10.0)
 
     def test_zero_velocity_full_torque(self):
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                DCMotorSaturation(
+                ClampingVelocityBased(
                     saturation_effort=wp.array([150.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -380,14 +371,13 @@ class TestPDWithDCMotor(unittest.TestCase):
     def test_velocity_reduces_max_torque(self):
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                DCMotorSaturation(
+                ClampingVelocityBased(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -412,14 +402,13 @@ class TestPDWithDCMotor(unittest.TestCase):
     def test_at_velocity_limit(self):
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                DCMotorSaturation(
+                ClampingVelocityBased(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -444,14 +433,13 @@ class TestPDWithDCMotor(unittest.TestCase):
     def test_negative_velocity_increases_positive_limit(self):
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                DCMotorSaturation(
+                ClampingVelocityBased(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -475,12 +463,12 @@ class TestPDWithDCMotor(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# PD Controller + Delay + RemotizedClamp
+# PD Controller + Delay + ClampingPositionBased
 # ---------------------------------------------------------------------------
 
 
-class TestPDWithRemotizedClamp(unittest.TestCase):
-    """Tests for PDController + Delay + RemotizedClamp (replaces old ActuatorRemotizedPD)."""
+class TestPDWithClampingPositionBased(unittest.TestCase):
+    """Tests for ControllerPD + Delay + ClampingPositionBased (replaces old ActuatorRemotizedPD)."""
 
     def setUp(self):
         wp.init()
@@ -494,15 +482,14 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
         indices = wp.array([0, 1], dtype=wp.uint32)
         angles, torques = self._make_lookup()
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0, 100.0], dtype=wp.float32),
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             delay=Delay(delay=3),
             clamping=[
-                RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
+                ClampingPositionBased(lookup_angles=angles, lookup_torques=torques),
             ],
         )
         self.assertIsInstance(actuator, Actuator)
@@ -511,7 +498,7 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
 
     def test_requires_lookup(self):
         with self.assertRaises(ValueError):
-            RemotizedClamp.resolve_arguments({"kp": 50.0})
+            ClampingPositionBased.resolve_arguments({"kp": 50.0})
 
     def test_angle_dependent_clipping(self):
         delay = 2
@@ -519,15 +506,14 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
         angles, torques = self._make_lookup()
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
             clamping=[
-                RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
+                ClampingPositionBased(lookup_angles=angles, lookup_torques=torques),
             ],
         )
 
@@ -560,15 +546,14 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
         angles, torques = self._make_lookup()
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
             clamping=[
-                RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
+                ClampingPositionBased(lookup_angles=angles, lookup_torques=torques),
             ],
         )
 
@@ -604,15 +589,14 @@ class TestPDWithRemotizedClamp(unittest.TestCase):
         angles, torques = self._make_lookup()
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([100.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=delay),
             clamping=[
-                RemotizedClamp(lookup_angles=angles, lookup_torques=torques),
+                ClampingPositionBased(lookup_angles=angles, lookup_torques=torques),
             ],
         )
 
@@ -651,18 +635,17 @@ class TestComposition(unittest.TestCase):
         wp.init()
 
     def test_pd_with_delay_and_dc_motor(self):
-        """PD + Delay + DCMotorSaturation — a combination not possible before."""
+        """PD + Delay + ClampingVelocityBased — a combination not possible before."""
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PDController(
+            indices=indices,
+            controller=ControllerPD(
                 kp=wp.array([1000.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             delay=Delay(delay=2),
             clamping=[
-                DCMotorSaturation(
+                ClampingVelocityBased(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -695,13 +678,79 @@ class TestComposition(unittest.TestCase):
         force = sim_control.joint_f.numpy()[0]
         self.assertAlmostEqual(force, 100.0, places=3)
 
-    def test_pid_with_delay_and_clamp(self):
-        """PID + Delay + Clamp — another novel combination."""
+    def test_computed_output_attr(self):
+        """control_computed_output_attr scatters pre-clamp forces."""
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=PIDController(
+            indices=indices,
+            controller=ControllerPD(
+                kp=wp.array([1000.0], dtype=wp.float32),
+                kd=wp.array([0.0], dtype=wp.float32),
+            ),
+            clamping=[
+                ClampingMaxForce(max_force=wp.array([50.0], dtype=wp.float32)),
+            ],
+            control_computed_output_attr="joint_f_computed",
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32),
+            joint_qd=wp.array([0.0], dtype=wp.float32),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32),
+            joint_act=wp.array([0.0], dtype=wp.float32),
+            joint_f=wp.zeros(1, dtype=wp.float32),
+            joint_f_computed=wp.zeros(1, dtype=wp.float32),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+
+        applied = sim_control.joint_f.numpy()[0]
+        computed = sim_control.joint_f_computed.numpy()[0]
+        self.assertAlmostEqual(applied, 50.0, places=3)
+        self.assertAlmostEqual(computed, 1000.0, places=3)
+
+    def test_no_computed_output_by_default(self):
+        """Without control_computed_output_attr, only applied forces scatter."""
+        indices = wp.array([0], dtype=wp.uint32)
+        actuator = Actuator(
+            indices=indices,
+            controller=ControllerPD(
+                kp=wp.array([1000.0], dtype=wp.float32),
+                kd=wp.array([0.0], dtype=wp.float32),
+            ),
+            clamping=[
+                ClampingMaxForce(max_force=wp.array([50.0], dtype=wp.float32)),
+            ],
+        )
+
+        sim_state = MockSimState(
+            joint_q=wp.array([0.0], dtype=wp.float32),
+            joint_qd=wp.array([0.0], dtype=wp.float32),
+        )
+        sim_control = MockSimControl(
+            joint_target_pos=wp.array([1.0], dtype=wp.float32),
+            joint_target_vel=wp.array([0.0], dtype=wp.float32),
+            joint_act=wp.array([0.0], dtype=wp.float32),
+            joint_f=wp.zeros(1, dtype=wp.float32),
+            joint_f_computed=wp.zeros(1, dtype=wp.float32),
+        )
+
+        actuator.step(sim_state, sim_control, None, None)
+
+        applied = sim_control.joint_f.numpy()[0]
+        computed = sim_control.joint_f_computed.numpy()[0]
+        self.assertAlmostEqual(applied, 50.0, places=3)
+        self.assertAlmostEqual(computed, 0.0, places=3)
+
+    def test_pid_with_delay_and_clamp(self):
+        """PID + Delay + ClampingMaxForce — another novel combination."""
+        indices = wp.array([0], dtype=wp.uint32)
+        actuator = Actuator(
+            indices=indices,
+            controller=ControllerPID(
                 kp=wp.array([100.0], dtype=wp.float32),
                 ki=wp.array([10.0], dtype=wp.float32),
                 kd=wp.array([0.0], dtype=wp.float32),
@@ -709,7 +758,7 @@ class TestComposition(unittest.TestCase):
             ),
             delay=Delay(delay=2),
             clamping=[
-                Clamp(max_force=wp.array([50.0], dtype=wp.float32)),
+                ClampingMaxForce(max_force=wp.array([50.0], dtype=wp.float32)),
             ],
         )
         self.assertTrue(actuator.is_stateful())
@@ -791,7 +840,7 @@ class TestActuatorParser(unittest.TestCase):
     """Tests for USD parsing with the new composed model."""
 
     def test_parse_pd_actuator_prim(self):
-        from newton_actuators import PDController, parse_actuator_prim
+        from newton_actuators import ControllerPD, parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -802,20 +851,20 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["PDControllerAPI"],
+            schemas=["ControllerPDAPI"],
         )
 
         result = parse_actuator_prim(prim)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result.controller_class, PDController)
+        self.assertEqual(result.controller_class, ControllerPD)
         self.assertEqual(result.target_paths, ["/World/Robot/Joint1"])
         self.assertEqual(result.controller_kwargs.get("kp"), 100.0)
         self.assertEqual(result.controller_kwargs.get("kd"), 10.0)
         self.assertEqual(len(result.component_specs), 0)
 
     def test_parse_delayed_pd_actuator_prim(self):
-        from newton_actuators import PDController, parse_actuator_prim
+        from newton_actuators import ControllerPD, parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -826,12 +875,12 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["PDControllerAPI", "DelayAPI"],
+            schemas=["ControllerPDAPI", "DelayAPI"],
         )
 
         result = parse_actuator_prim(prim)
         self.assertIsNotNone(result)
-        self.assertEqual(result.controller_class, PDController)
+        self.assertEqual(result.controller_class, ControllerPD)
         self.assertEqual(result.controller_kwargs.get("kp"), 50.0)
         self.assertEqual(len(result.component_specs), 1)
         delay_cls, delay_kwargs = result.component_specs[0]
@@ -840,7 +889,7 @@ class TestActuatorParser(unittest.TestCase):
         self.assertEqual(delay_kwargs.get("delay"), 5)
 
     def test_parse_pid_actuator_prim(self):
-        from newton_actuators import PIDController, parse_actuator_prim
+        from newton_actuators import ControllerPID, parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -852,36 +901,14 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["PIDControllerAPI"],
+            schemas=["ControllerPIDAPI"],
         )
 
         result = parse_actuator_prim(prim)
         self.assertIsNotNone(result)
-        self.assertEqual(result.controller_class, PIDController)
+        self.assertEqual(result.controller_class, ControllerPID)
         self.assertEqual(result.controller_kwargs.get("kp"), 100.0)
         self.assertEqual(result.controller_kwargs.get("ki"), 5.0)
-
-    def test_parse_multi_target_actuator(self):
-        from newton_actuators import parse_actuator_prim
-
-        prim = MockPrim(
-            type_name="Actuator",
-            attributes={
-                "newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp"),
-                "newton:actuator:transmission": MockAttribute([0.5, 0.3, 0.2], "newton:actuator:transmission"),
-            },
-            relationships={
-                "newton:actuator:target": MockRelationship(
-                    ["/World/Robot/Joint1", "/World/Robot/Joint2", "/World/Robot/Joint3"]
-                ),
-            },
-            schemas=["PDControllerAPI"],
-        )
-
-        result = parse_actuator_prim(prim)
-        self.assertIsNotNone(result)
-        self.assertEqual(len(result.target_paths), 3)
-        self.assertEqual(result.transmission, [0.5, 0.3, 0.2])
 
     def test_parse_non_actuator_prim_returns_none(self):
         from newton_actuators import parse_actuator_prim
@@ -897,13 +924,13 @@ class TestActuatorParser(unittest.TestCase):
             type_name="Actuator",
             attributes={"newton:actuator:kp": MockAttribute(100.0, "newton:actuator:kp")},
             relationships={},
-            schemas=["PDControllerAPI"],
+            schemas=["ControllerPDAPI"],
         )
         result = parse_actuator_prim(prim)
         self.assertIsNone(result)
 
     def test_parse_dc_motor_actuator_prim(self):
-        from newton_actuators import PDController, parse_actuator_prim
+        from newton_actuators import ControllerPD, parse_actuator_prim
 
         prim = MockPrim(
             type_name="Actuator",
@@ -917,12 +944,12 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["PDControllerAPI", "DCMotorAPI"],
+            schemas=["ControllerPDAPI", "ClampingVelocityBasedAPI"],
         )
 
         result = parse_actuator_prim(prim)
         self.assertIsNotNone(result)
-        self.assertEqual(result.controller_class, PDController)
+        self.assertEqual(result.controller_class, ControllerPD)
         self.assertEqual(result.controller_kwargs.get("kp"), 100.0)
         self.assertEqual(result.controller_kwargs.get("kd"), 10.0)
         self.assertTrue(len(result.component_specs) > 0)
@@ -940,7 +967,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["PDControllerAPI", "DCMotorAPI"],
+            schemas=["ControllerPDAPI", "ClampingVelocityBasedAPI"],
         )
 
         with self.assertRaises(ValueError):
@@ -959,7 +986,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["PDControllerAPI", "DCMotorAPI"],
+            schemas=["ControllerPDAPI", "ClampingVelocityBasedAPI"],
         )
 
         with self.assertRaises(ValueError):
@@ -972,8 +999,8 @@ class TestActuatorParser(unittest.TestCase):
 
 
 @unittest.skipUnless(_HAS_TORCH, "torch not installed")
-class TestNetMLPController(unittest.TestCase):
-    """Tests for NetMLPController + Clamp (replaces old ActuatorNetMLP)."""
+class TestControllerNetMLP(unittest.TestCase):
+    """Tests for ControllerNetMLP + ClampingMaxForce (replaces old ActuatorNetMLP)."""
 
     def setUp(self):
         wp.init()
@@ -991,31 +1018,29 @@ class TestNetMLPController(unittest.TestCase):
         )
 
     def test_creation(self):
-        from newton_actuators import Clamp, NetMLPController
+        from newton_actuators import ClampingMaxForce, ControllerNetMLP
 
         indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
         network = self._make_mlp(input_dim=2)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetMLPController(network=network),
-            clamping=[Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
+            indices=indices,
+            controller=ControllerNetMLP(network=network),
+            clamping=[ClampingMaxForce(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
         self.assertFalse(actuator.is_graphable())
 
     def test_state(self):
-        from newton_actuators import NetMLPController
+        from newton_actuators import ControllerNetMLP
 
         indices = wp.array([0, 1, 2], dtype=wp.uint32, device=self.wp_device)
         network = self._make_mlp(input_dim=6)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetMLPController(network=network, input_idx=[0, 1, 2]),
+            indices=indices,
+            controller=ControllerNetMLP(network=network, input_idx=[0, 1, 2]),
         )
 
         state = actuator.state()
@@ -1025,17 +1050,16 @@ class TestNetMLPController(unittest.TestCase):
         self.assertEqual(ctrl_state.vel_history.shape, (3, 3))
 
     def test_step_runs(self):
-        from newton_actuators import Clamp, NetMLPController
+        from newton_actuators import ClampingMaxForce, ControllerNetMLP
 
         num_dofs = 2
         indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
         network = self._make_mlp(input_dim=2)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetMLPController(network=network),
-            clamping=[Clamp(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
+            indices=indices,
+            controller=ControllerNetMLP(network=network),
+            clamping=[ClampingMaxForce(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
@@ -1057,7 +1081,7 @@ class TestNetMLPController(unittest.TestCase):
         self.assertEqual(forces.shape, (2,))
 
     def test_clamping(self):
-        from newton_actuators import Clamp, NetMLPController
+        from newton_actuators import ClampingMaxForce, ControllerNetMLP
 
         num_dofs = 1
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
@@ -1069,10 +1093,9 @@ class TestNetMLPController(unittest.TestCase):
 
         max_force_val = 10.0
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetMLPController(network=network),
-            clamping=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
+            indices=indices,
+            controller=ControllerNetMLP(network=network),
+            clamping=[ClampingMaxForce(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
@@ -1095,7 +1118,7 @@ class TestNetMLPController(unittest.TestCase):
 
     def test_raw_output(self):
         """Network output is passed through without scaling."""
-        from newton_actuators import NetMLPController
+        from newton_actuators import ControllerNetMLP
 
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
 
@@ -1105,9 +1128,8 @@ class TestNetMLPController(unittest.TestCase):
             network[0].bias.fill_(5.0)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetMLPController(network=network),
+            indices=indices,
+            controller=ControllerNetMLP(network=network),
         )
 
         stateA = actuator.state()
@@ -1129,15 +1151,14 @@ class TestNetMLPController(unittest.TestCase):
         self.assertAlmostEqual(force, 5.0, places=3)
 
     def test_history_persistence(self):
-        from newton_actuators import NetMLPController
+        from newton_actuators import ControllerNetMLP
 
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
         network = self._make_mlp(input_dim=4)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetMLPController(network=network, input_idx=[0, 1]),
+            indices=indices,
+            controller=ControllerNetMLP(network=network, input_idx=[0, 1]),
         )
 
         stateA = actuator.state()
@@ -1166,15 +1187,15 @@ class TestNetMLPController(unittest.TestCase):
         self.assertFalse(self.torch.all(ctrl_state.vel_history == 0.0).item())
 
     def test_invalid_input_order(self):
-        from newton_actuators import NetMLPController
+        from newton_actuators import ControllerNetMLP
 
         with self.assertRaises(ValueError):
-            NetMLPController(network=self._make_mlp(2), input_order="invalid")
+            ControllerNetMLP(network=self._make_mlp(2), input_order="invalid")
 
 
 @unittest.skipUnless(_HAS_TORCH, "torch not installed")
-class TestNetLSTMController(unittest.TestCase):
-    """Tests for NetLSTMController + Clamp (replaces old ActuatorNetLSTM)."""
+class TestControllerNetLSTM(unittest.TestCase):
+    """Tests for ControllerNetLSTM + ClampingMaxForce (replaces old ActuatorNetLSTM)."""
 
     def setUp(self):
         wp.init()
@@ -1201,23 +1222,22 @@ class TestNetLSTMController(unittest.TestCase):
         return _SimpleLSTMNet(input_size=2, hidden_size=hidden_size, num_layers=num_layers)
 
     def test_creation(self):
-        from newton_actuators import Clamp, NetLSTMController
+        from newton_actuators import ClampingMaxForce, ControllerNetLSTM
 
         indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
         network = self._make_lstm()
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetLSTMController(network=network),
-            clamping=[Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
+            indices=indices,
+            controller=ControllerNetLSTM(network=network),
+            clamping=[ClampingMaxForce(max_force=wp.array([50.0, 50.0], dtype=wp.float32, device=self.wp_device))],
         )
         self.assertIsInstance(actuator, Actuator)
         self.assertTrue(actuator.is_stateful())
         self.assertFalse(actuator.is_graphable())
 
     def test_state(self):
-        from newton_actuators import NetLSTMController
+        from newton_actuators import ControllerNetLSTM
 
         hidden_size = 16
         num_layers = 2
@@ -1225,9 +1245,8 @@ class TestNetLSTMController(unittest.TestCase):
         network = self._make_lstm(hidden_size=hidden_size, num_layers=num_layers)
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetLSTMController(network=network),
+            indices=indices,
+            controller=ControllerNetLSTM(network=network),
         )
 
         state = actuator.state()
@@ -1236,17 +1255,16 @@ class TestNetLSTMController(unittest.TestCase):
         self.assertEqual(ctrl_state.cell.shape, (num_layers, 3, hidden_size))
 
     def test_step_runs(self):
-        from newton_actuators import Clamp, NetLSTMController
+        from newton_actuators import ClampingMaxForce, ControllerNetLSTM
 
         num_dofs = 2
         indices = wp.array([0, 1], dtype=wp.uint32, device=self.wp_device)
         network = self._make_lstm()
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetLSTMController(network=network),
-            clamping=[Clamp(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
+            indices=indices,
+            controller=ControllerNetLSTM(network=network),
+            clamping=[ClampingMaxForce(max_force=wp.array([1000.0, 1000.0], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
@@ -1268,7 +1286,7 @@ class TestNetLSTMController(unittest.TestCase):
         self.assertEqual(forces.shape, (2,))
 
     def test_clamping(self):
-        from newton_actuators import Clamp, NetLSTMController
+        from newton_actuators import ClampingMaxForce, ControllerNetLSTM
 
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
 
@@ -1279,10 +1297,9 @@ class TestNetLSTMController(unittest.TestCase):
 
         max_force_val = 10.0
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetLSTMController(network=network),
-            clamping=[Clamp(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
+            indices=indices,
+            controller=ControllerNetLSTM(network=network),
+            clamping=[ClampingMaxForce(max_force=wp.array([max_force_val], dtype=wp.float32, device=self.wp_device))],
         )
 
         stateA = actuator.state()
@@ -1304,15 +1321,14 @@ class TestNetLSTMController(unittest.TestCase):
         self.assertAlmostEqual(force, max_force_val, places=3)
 
     def test_state_evolves(self):
-        from newton_actuators import NetLSTMController
+        from newton_actuators import ControllerNetLSTM
 
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
         network = self._make_lstm()
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetLSTMController(network=network),
+            indices=indices,
+            controller=ControllerNetLSTM(network=network),
         )
 
         stateA = actuator.state()
@@ -1338,15 +1354,14 @@ class TestNetLSTMController(unittest.TestCase):
         self.assertFalse(self.torch.all(stateB.controller_state.cell == 0.0).item())
 
     def test_multi_step_different_outputs(self):
-        from newton_actuators import NetLSTMController
+        from newton_actuators import ControllerNetLSTM
 
         indices = wp.array([0], dtype=wp.uint32, device=self.wp_device)
         network = self._make_lstm()
 
         actuator = Actuator(
-            input_indices=indices,
-            output_indices=indices,
-            controller=NetLSTMController(network=network),
+            indices=indices,
+            controller=ControllerNetLSTM(network=network),
         )
 
         stateA = actuator.state()

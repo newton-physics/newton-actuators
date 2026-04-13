@@ -7,30 +7,28 @@
 
 GPU-accelerated actuator library for physics simulations.
 
-This library provides composable actuator implementations that integrate with
-physics simulation pipelines. Actuators read from simulation state arrays and
-write computed forces/torques back to control arrays.
+This library provides composable actuator implementations that read physics simulation state, compute actuator forces, and write the forces back to control arrays for application to the simulation. The simulator does not need to be part of Newton: the library is designed to be reusable anywhere the caller can provide state arrays and consume forces. Each actuator instance is vectorized: a single actuator object operates on a batch of indices in global state and control arrays, allowing efficient integration into RL workflows. The goal is to provide canonical actuator models with support for differentiability and graphable execution where the underlying controller implementation supports it. The library is designed to be easy for users to customize and extend for their specific actuator models.
+
+**Current limitations (v1):** no transmission support, SISO only, no dynamics component.
 
 ## Architecture
 
 An actuator is composed from three building blocks:
 
-- **Controller** — computes raw forces from state error (PD, PID, neural network).
-- **Delay** — optional pre-controller modifier that delays targets by N timesteps.
-- **Clamping** — post-controller force bounds (symmetric limits,
-  velocity-dependent saturation, angle-dependent torque curves, …).
-  Order does not matter — each clamping intersects its limits independently.
+- **Controller** — control law that computes raw forces or torques from the current simulator state and control targets (PD, PID, neural-network-based control).
+- **Delay** — optionally delays the control targets (e.g. position or velocity) by N timesteps before they reach the controller, allowing the actuator to model communication or processing latency.
+- **Clamping** — applies post-controller output limits to the computed forces or torques to model motor limits, such as saturation, back-EMF losses, performance envelopes, or angle-dependent torque limits. Multiple clamping stages can be combined; order does not matter as each stage applies its limits independently.
 
 The `Actuator` class wires them together:
 
 ```
 Actuator
-├── Controller  (compute raw forces)
-├── Delay       (optional: delays targets by N timesteps)
-└── Clamping[]  (post-controller force bounds)
-    ├── Clamp              (±max_force)
-    ├── DCMotorSaturation  (velocity-dependent saturation)
-    └── RemotizedClamp     (angle-dependent lookup)
+├── Controller      (control law that computes raw forces)
+├── Delay           (optional: delays control targets by N timesteps)
+└── Clamping[]          (post-controller force bounds)
+    ├── ClampingMaxForce       (±max_force box clamp)
+    ├── ClampingVelocityBased   (velocity-dependent saturation)
+    └── ClampingPositionBased  (angle-dependent lookup)
 ```
 
 ## Installation
@@ -48,7 +46,7 @@ pip install -e .
 
 ### With PyTorch (for neural network controllers)
 
-The `NetMLPController` and `NetLSTMController` require PyTorch. Install the
+The `ControllerNetMLP` and `ControllerNetLSTM` require PyTorch. Install the
 extra matching your CUDA version:
 
 **Using uv** (index routing is automatic):
@@ -71,51 +69,53 @@ pip install "newton-actuators[torch-cu13]" --extra-index-url https://download.py
 
 | Controller | Description | Stateful |
 |---|---|---|
-| `PDController` | Proportional-derivative controller | No |
-| `PIDController` | PID controller with anti-windup integral | Yes |
-| `NetMLPController` | MLP network with position/velocity history | Yes |
-| `NetLSTMController` | LSTM network with recurrent hidden state | Yes |
+| `ControllerPD` | Proportional-derivative controller | No |
+| `ControllerPID` | PID controller with integral clamping | Yes |
+| `ControllerNetMLP` | MLP network with position/velocity history | Yes |
+| `ControllerNetLSTM` | LSTM network with recurrent hidden state | Yes |
 
 #### Force Laws
 
-- **PDController**: `f = constant + act + Kp·(target_pos - q) + Kd·(target_vel - v)`
-- **PIDController**: `f = constant + act + Kp·e + Ki·∫e·dt + Kd·de`
-- **NetMLPController**: `f = network(cat(pos_error_history, vel_history))`
-- **NetLSTMController**: `f, (h', c') = network(input, (h, c))`
+- **ControllerPD**: `f = bias + act + Kp·(target_pos - q) + Kd·(target_vel - v)`
+- **ControllerPID**: `f = bias + act + Kp·e + Ki·∫e·dt + Kd·ė` where `e = target_pos - q`
+- **ControllerNetMLP**: `f = network(input)` where input includes position-error and velocity history
+- **ControllerNetLSTM**: `f, (h', c') = network(input, (h, c))`
 
 ### Delay
 
 | Component | Description | Stateful |
 |---|---|---|
-| `Delay` | Delays targets by N timesteps (circular buffer) | Yes |
+| `Delay` | Delays control targets by N timesteps (circular buffer) | Yes |
 
-Passed to `Actuator` via the `delay=` parameter (not in the clamping list).
+Passed to `Actuator` via the `delay=` parameter.
 
 ### Clamping
 
 | Clamping | Description | Stateful |
 |---|---|---|
-| `Clamp` | Box-clamp to ±max_force | No |
-| `DCMotorSaturation` | Velocity-dependent torque–speed saturation | No |
-| `RemotizedClamp` | Angle-dependent torque limits via lookup table | No |
+| `ClampingMaxForce` | Box-clamp raw forces to ±max_force | No |
+| `ClampingVelocityBased` | Velocity-dependent torque–speed saturation | No |
+| `ClampingPositionBased` | Angle-dependent torque limits via lookup table | No |
+
+Multiple clamping stages can be combined freely; each applies its own limits independently (intersection semantics).
 
 ### Actuator (Composer)
 
-`Actuator(input_indices, output_indices, controller, delay=None, clamping=[...])`
+`Actuator(indices, controller, delay=None, clamping=[...])`
 composes a controller with an optional delay and zero or more clamping objects.
 The `step()` method runs:
 
-1. **Delay** — read delayed targets from buffer (skipped if no delay or buffer still filling)
+1. **Delay** — read delayed targets from buffer (zero force output while buffer is still filling)
 2. **Controller** — compute raw forces
-3. **Clamping** — bound forces (e.g. `Clamp`, `DCMotorSaturation`)
-4. **Scatter-add** — accumulate forces into the output array
+3. **Clamping** — clamp raw forces (e.g. `ClampingMaxForce`, `ClampingVelocityBased`)
+4. **Scatter-add** — accumulate forces into the output array at the specified DOF indices
 5. **State updates** — update delay buffer and controller state
 
 ### Common Methods
 
 - `actuator.is_stateful()` — True if any component maintains internal state
 - `actuator.is_graphable()` — True if `step()` can be captured in a CUDA graph
-- `actuator.state()` — return a new `ActuatorState` (None if stateless)
+- `actuator.state()` — return a new `StateActuator` (None if stateless)
 - `actuator.step(sim_state, sim_control, current_state, next_state, dt)` — one control step
 - `state.reset()` — zero all internal buffers without reallocating
 
@@ -130,22 +130,21 @@ The `step()` method runs:
 
 ## Examples
 
-### Stateless: PD + Clamp
+### Stateless: PD + ClampingMaxForce
 
 ```python
 import warp as wp
-from newton_actuators import Actuator, PDController, Clamp
+from newton_actuators import Actuator, ControllerPD, ClampingMaxForce
 
 indices = wp.array([0, 1, 2], dtype=wp.uint32)
 actuator = Actuator(
-    input_indices=indices,
-    output_indices=indices,
-    controller=PDController(
+    indices=indices,
+    controller=ControllerPD(
         kp=wp.array([100.0, 100.0, 100.0], dtype=wp.float32),
         kd=wp.array([10.0, 10.0, 10.0], dtype=wp.float32),
     ),
     clamping=[
-        Clamp(max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32)),
+        ClampingMaxForce(max_force=wp.array([50.0, 50.0, 50.0], dtype=wp.float32)),
     ],
 )
 
@@ -153,22 +152,21 @@ actuator = Actuator(
 actuator.step(sim_state, sim_control, None, None, dt=0.01)
 ```
 
-### Stateful: PID + Clamp
+### Stateful: PID + ClampingMaxForce
 
 ```python
-from newton_actuators import PIDController
+from newton_actuators import ControllerPID
 
 actuator = Actuator(
-    input_indices=indices,
-    output_indices=indices,
-    controller=PIDController(
+    indices=indices,
+    controller=ControllerPID(
         kp=wp.array([100.0, 100.0], dtype=wp.float32),
         ki=wp.array([10.0, 10.0], dtype=wp.float32),
         kd=wp.array([5.0, 5.0], dtype=wp.float32),
         integral_max=wp.array([10.0, 10.0], dtype=wp.float32),
     ),
     clamping=[
-        Clamp(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
+        ClampingMaxForce(max_force=wp.array([50.0, 50.0], dtype=wp.float32)),
     ],
 )
 
@@ -186,15 +184,14 @@ for step in range(num_steps):
 The composer pattern lets you freely combine controllers and clamping:
 
 ```python
-from newton_actuators import Delay, DCMotorSaturation
+from newton_actuators import Delay, ClampingVelocityBased
 
 actuator = Actuator(
-    input_indices=indices,
-    output_indices=indices,
-    controller=PDController(kp=kp, kd=kd),
+    indices=indices,
+    controller=ControllerPD(kp=kp, kd=kd),
     delay=Delay(delay=5),
     clamping=[
-        DCMotorSaturation(
+        ClampingVelocityBased(
             saturation_effort=sat_effort,
             velocity_limit=vel_limit,
             max_force=max_force,
@@ -206,13 +203,12 @@ actuator = Actuator(
 ### LSTM Controller
 
 ```python
-from newton_actuators import NetLSTMController
+from newton_actuators import ControllerNetLSTM
 
 actuator = Actuator(
-    input_indices=indices,
-    output_indices=indices,
-    controller=NetLSTMController(network=my_lstm_model),
-    clamping=[Clamp(max_force=max_force)],
+    indices=indices,
+    controller=ControllerNetLSTM(network=my_lstm_model),
+    clamping=[ClampingMaxForce(max_force=max_force)],
 )
 
 state = actuator.state()
@@ -227,9 +223,9 @@ from newton_actuators import parse_actuator_prim
 
 result = parse_actuator_prim(prim)
 if result is not None:
-    controller_cls = result.controller_class    # e.g. PDController
+    controller_cls = result.controller_class    # e.g. ControllerPD
     ctrl_kwargs = result.controller_kwargs      # e.g. {"kp": 100.0, "kd": 10.0}
-    component_specs = result.component_specs    # e.g. [(Delay, {"delay": 5}), (Clamp, {"max_force": 50.0})]
+    component_specs = result.component_specs    # e.g. [(Delay, {"delay": 5}), (ClampingMaxForce, {"max_force": 50.0})]
     target_paths = result.target_paths          # e.g. ["/World/Robot/Joint1"]
 ```
 

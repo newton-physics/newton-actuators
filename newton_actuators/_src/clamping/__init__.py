@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .base import Clamping
-from .clamp import Clamp
-from .dc_motor_saturation import DCMotorSaturation
-from .remotized_clamp import RemotizedClamp
+from .clamping_max_force import ClampingMaxForce
+from .clamping_position_based import ClampingPositionBased
+from .clamping_velocity_based import ClampingVelocityBased
 
 __all__ = [
-    "Clamp",
-    "DCMotorSaturation",
     "Clamping",
-    "RemotizedClamp",
+    "ClampingMaxForce",
+    "ClampingPositionBased",
+    "ClampingVelocityBased",
 ]

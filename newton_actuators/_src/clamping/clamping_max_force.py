@@ -12,17 +12,17 @@ from .base import Clamping
 @wp.kernel
 def _box_clamp_kernel(
     max_force: wp.array(dtype=float),
-    forces: wp.array(dtype=float),
+    src: wp.array(dtype=float),
+    dst: wp.array(dtype=float),
 ):
-    """Clamp forces to ±max_force in-place."""
+    """Clamp src forces to ±max_force, write to dst."""
     i = wp.tid()
-    forces[i] = wp.clamp(forces[i], -max_force[i], max_force[i])
+    dst[i] = wp.clamp(src[i], -max_force[i], max_force[i])
 
 
-class Clamp(Clamping):
-    """Box-clamp dynamic.
+class ClampingMaxForce(Clamping):
+    """Box-clamp forces to ±max_force per actuator.
 
-    Clamps controller output forces to ±max_force per actuator.
     This is a post-controller dynamic.
     """
 
@@ -40,7 +40,8 @@ class Clamp(Clamping):
 
     def modify_forces(
         self,
-        forces: wp.array,
+        src_forces: wp.array,
+        dst_forces: wp.array,
         positions: wp.array,
         velocities: wp.array,
         input_indices: wp.array,
@@ -49,6 +50,6 @@ class Clamp(Clamping):
         wp.launch(
             kernel=_box_clamp_kernel,
             dim=num_actuators,
-            inputs=[self.max_force],
-            outputs=[forces],
+            inputs=[self.max_force, src_forces],
+            outputs=[dst_forces],
         )

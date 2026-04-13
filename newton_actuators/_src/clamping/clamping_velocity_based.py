@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 The Newton Developers
+# SPDX-FileCopyrightText: Copyright (c) 2025 The Newton Developers
 # SPDX-License-Identifier: Apache-2.0
 
 import math
@@ -10,15 +10,16 @@ from .base import Clamping
 
 
 @wp.kernel
-def _dc_motor_clamp_kernel(
+def _clamp_velocity_based_kernel(
     current_vel: wp.array(dtype=float),
     state_indices: wp.array(dtype=wp.uint32),
     saturation_effort: wp.array(dtype=float),
     velocity_limit: wp.array(dtype=float),
     max_force: wp.array(dtype=float),
-    forces: wp.array(dtype=float),
+    src: wp.array(dtype=float),
+    dst: wp.array(dtype=float),
 ):
-    """DC motor velocity-dependent saturation clamp in-place.
+    """DC motor velocity-dependent saturation: read src, write to dst.
 
     τ_max(v) = clamp(τ_sat*(1 - v/v_max),  0,  max_force)
     τ_min(v) = clamp(τ_sat*(-1 - v/v_max), -max_force, 0)
@@ -32,10 +33,10 @@ def _dc_motor_clamp_kernel(
 
     max_torque = wp.clamp(sat * (1.0 - vel / vel_lim), 0.0, max_f)
     min_torque = wp.clamp(sat * (-1.0 - vel / vel_lim), -max_f, 0.0)
-    forces[i] = wp.clamp(forces[i], min_torque, max_torque)
+    dst[i] = wp.clamp(src[i], min_torque, max_torque)
 
 
-class DCMotorSaturation(Clamping):
+class ClampingVelocityBased(Clamping):
     """DC motor velocity-dependent torque saturation.
 
     Clips controller output using the torque–speed characteristic:
@@ -52,7 +53,7 @@ class DCMotorSaturation(Clamping):
     @classmethod
     def resolve_arguments(cls, args: dict[str, Any]) -> dict[str, Any]:
         if "velocity_limit" not in args:
-            raise ValueError("DCMotorSaturation requires 'velocity_limit' argument")
+            raise ValueError("ClampVelocityBased requires 'velocity_limit' argument")
         return {
             "saturation_effort": args.get("saturation_effort", math.inf),
             "velocity_limit": args["velocity_limit"],
@@ -78,14 +79,15 @@ class DCMotorSaturation(Clamping):
 
     def modify_forces(
         self,
-        forces: wp.array,
+        src_forces: wp.array,
+        dst_forces: wp.array,
         positions: wp.array,
         velocities: wp.array,
         input_indices: wp.array,
         num_actuators: int,
     ) -> None:
         wp.launch(
-            kernel=_dc_motor_clamp_kernel,
+            kernel=_clamp_velocity_based_kernel,
             dim=num_actuators,
             inputs=[
                 velocities,
@@ -93,6 +95,7 @@ class DCMotorSaturation(Clamping):
                 self.saturation_effort,
                 self.velocity_limit,
                 self.max_force,
+                src_forces,
             ],
-            outputs=[forces],
+            outputs=[dst_forces],
         )
