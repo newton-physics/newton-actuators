@@ -3,16 +3,21 @@
 
 """Newton Actuators - GPU-accelerated actuator library for physics simulations."""
 
-from ._src.actuators import (
-    Actuator,
-    ActuatorDCMotor,
-    ActuatorDelayedPD,
-    ActuatorNetLSTM,
-    ActuatorNetMLP,
-    ActuatorPD,
-    ActuatorPID,
-    ActuatorRemotizedPD,
+from ._src.actuator import Actuator, StateActuator
+from ._src.clamping import (
+    Clamping,
+    ClampingMaxForce,
+    ClampingPositionBased,
+    ClampingDCMotor,
 )
+from ._src.controllers import (
+    Controller,
+    ControllerNetLSTM,
+    ControllerNetMLP,
+    ControllerPD,
+    ControllerPID,
+)
+from ._src.delay import Delay
 from ._src.usd_parser import (
     ParsedActuator,
     parse_actuator_prim,
@@ -21,14 +26,23 @@ from ._version import __version__
 
 __all__ = [
     "__version__",
+    # Composer
     "Actuator",
-    "ActuatorDCMotor",
-    "ActuatorDelayedPD",
-    "ActuatorNetLSTM",
-    "ActuatorNetMLP",
-    "ActuatorPD",
-    "ActuatorPID",
-    "ActuatorRemotizedPD",
+    "StateActuator",
+    # Controllers
+    "Controller",
+    "ControllerPD",
+    "ControllerPID",
+    "ControllerNetMLP",
+    "ControllerNetLSTM",
+    # Delay
+    "Delay",
+    # Clamping
+    "Clamping",
+    "ClampingMaxForce",
+    "ClampingPositionBased",
+    "ClampingDCMotor",
+    # USD
     "ParsedActuator",
     "parse_actuator_prim",
 ]

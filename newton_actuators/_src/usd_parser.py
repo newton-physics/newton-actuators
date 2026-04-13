@@ -6,42 +6,82 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .actuators import ActuatorDCMotor, ActuatorDelayedPD, ActuatorPD, ActuatorPID
+from .clamping import ClampingMaxForce, ClampingDCMotor
+from .controllers import ControllerNetLSTM, ControllerNetMLP, ControllerPD, ControllerPID
+from .delay import Delay
+
+
+@dataclass
+class SchemaEntry:
+    """Maps an API schema to a component class and its USD→kwarg param names."""
+
+    component_class: type
+    param_map: dict[str, str]
+    is_controller: bool = False
+    validate: Any = None
+
+
+def _validate_clamp_velocity_based(kwargs: dict[str, Any]) -> None:
+    vel_lim = kwargs.get("velocity_limit")
+    if vel_lim is not None and vel_lim <= 0.0:
+        raise ValueError(
+            f"ClampingDCMotorAPI requires velocity_limit > 0 (division by velocity_limit "
+            f"in torque-speed computation); got {vel_lim}"
+        )
+
+
+# Temporary registry until the actual USD schema is merged.
+SCHEMA_REGISTRY: dict[str, SchemaEntry] = {
+    "ControllerPDAPI": SchemaEntry(
+        component_class=ControllerPD,
+        param_map={"kp": "kp", "kd": "kd", "constForce": "constant_force"},
+        is_controller=True,
+    ),
+    "ControllerPIDAPI": SchemaEntry(
+        component_class=ControllerPID,
+        param_map={"kp": "kp", "ki": "ki", "kd": "kd", "integralMax": "integral_max", "constForce": "constant_force"},
+        is_controller=True,
+    ),
+    "ClampingMaxForceAPI": SchemaEntry(
+        component_class=ClampingMaxForce,
+        param_map={"maxForce": "max_force"},
+    ),
+    "DelayAPI": SchemaEntry(
+        component_class=Delay,
+        param_map={"delay": "delay"},
+    ),
+    "ClampingDCMotorAPI": SchemaEntry(
+        component_class=ClampingDCMotor,
+        param_map={"saturationEffort": "saturation_effort", "velocityLimit": "velocity_limit", "maxForce": "max_force"},
+        validate=_validate_clamp_velocity_based,
+    ),
+    # Neural-network controllers
+    "ControllerNetMLPAPI": SchemaEntry(
+        component_class=ControllerNetMLP,
+        param_map={"networkPath": "network_path"},
+        is_controller=True,
+    ),
+    "ControllerNetLSTMAPI": SchemaEntry(
+        component_class=ControllerNetLSTM,
+        param_map={"networkPath": "network_path"},
+        is_controller=True,
+    ),
+}
 
 
 @dataclass
 class ParsedActuator:
-    """Result of parsing a USD actuator prim."""
+    """Result of parsing a USD actuator prim.
 
-    actuator_class: type
-    target_paths: list[str]
-    kwargs: dict[str, Any] = field(default_factory=dict)
-    transmission: list[float] | None = None
+    Each detected API schema produces a (class, kwargs) entry.
+    The controller is separated out; everything else goes into
+    component_specs (delay, clamping, etc.).
+    """
 
-
-API_SCHEMA_HANDLERS: dict[str, dict[str, str]] = {
-    "PDControllerAPI": {
-        "kp": "kp",
-        "kd": "kd",
-        "maxForce": "max_force",
-        "constForce": "constant_force",
-    },
-    "PIDControllerAPI": {
-        "kp": "kp",
-        "ki": "ki",
-        "kd": "kd",
-        "maxForce": "max_force",
-        "integralMax": "integral_max",
-        "constForce": "constant_force",
-    },
-    "DelayAPI": {
-        "delay": "delay",
-    },
-    "DCMotorAPI": {
-        "saturationEffort": "saturation_effort",
-        "velocityLimit": "velocity_limit",
-    },
-}
+    controller_class: type
+    controller_kwargs: dict[str, Any] = field(default_factory=dict)
+    component_specs: list[tuple[type, dict[str, Any]]] = field(default_factory=list)
+    target_paths: list[str] = field(default_factory=list)
 
 
 def get_attribute(prim, name: str, default: Any = None) -> Any:
@@ -60,80 +100,22 @@ def get_relationship_targets(prim, name: str) -> list[str]:
     return [str(t) for t in rel.GetTargets()]
 
 
-def get_actuator_attribute_names(prim) -> set[str]:
-    """Get all newton:actuator attribute names from a prim."""
-    names = set()
-    for attr in prim.GetAttributes():
-        attr_name = attr.GetName()
-        if attr_name.startswith("newton:actuator:"):
-            names.add(attr_name.split(":")[-1])
-    return names
+def get_schemas_from_prim(prim) -> list[str]:
+    """Get applied schemas that match the registry.
 
-
-def infer_schemas_from_prim(prim) -> list[str]:
-    """Infer actuator schemas from attribute names."""
-    attr_names = get_actuator_attribute_names(prim)
-    schemas = []
-
-    if "ki" in attr_names:
-        schemas.append("PIDControllerAPI")
-    elif "kp" in attr_names or "kd" in attr_names:
-        schemas.append("PDControllerAPI")
-    if "delay" in attr_names:
-        schemas.append("DelayAPI")
-    if "saturationEffort" in attr_names and "velocityLimit" in attr_names:
-        schemas.append("DCMotorAPI")
-
-    return schemas
-
-
-def determine_actuator_class(schemas: list[str]) -> type:
-    """Determine actuator class from inferred schemas."""
-    has_delay = "DelayAPI" in schemas
-    has_pid = "PIDControllerAPI" in schemas
-    has_pd = "PDControllerAPI" in schemas
-    has_dc_motor = "DCMotorAPI" in schemas
-
-    if has_dc_motor and has_pd:
-        return ActuatorDCMotor
-    elif has_delay and has_pd:
-        return ActuatorDelayedPD
-    elif has_pid:
-        return ActuatorPID
-    elif has_pd:
-        return ActuatorPD
-    else:
-        return ActuatorPD
-
-
-def validate_kwargs(schemas: list[str], kwargs: dict[str, Any]) -> None:
-    """Validate extracted kwargs. Raises ValueError on invalid values."""
-    if "DCMotorAPI" in schemas:
-        vel_lim = kwargs.get("velocity_limit")
-        if vel_lim is not None and vel_lim <= 0.0:
-            raise ValueError(
-                f"DCMotorAPI requires velocity_limit > 0 (division by velocity_limit "
-                f"in saturation computation); got {vel_lim}"
-            )
-
-
-def extract_kwargs_from_prim(prim, schemas: list[str]) -> dict[str, Any]:
-    """Extract actuator parameters from prim attributes using newton:actuator:{attr} format."""
-    kwargs = {}
-    for schema_name in schemas:
-        if schema_name not in API_SCHEMA_HANDLERS:
-            continue
-        param_map = API_SCHEMA_HANDLERS[schema_name]
-        for usd_name, kwarg_name in param_map.items():
-            value = get_attribute(prim, f"newton:actuator:{usd_name}")
-            if value is not None:
-                kwargs[kwarg_name] = value
-    validate_kwargs(schemas, kwargs)
-    return kwargs
+    Uses prim.GetAppliedSchemas() and matches against SCHEMA_REGISTRY keys.
+    """
+    # TODO: replace string matching with proper USD schema type checks
+    applied = prim.GetAppliedSchemas()
+    return [s for s in applied if s in SCHEMA_REGISTRY]
 
 
 def parse_actuator_prim(prim) -> ParsedActuator | None:
-    """Parse a USD Actuator prim. Returns None if not a valid actuator."""
+    """Parse a USD Actuator prim into a composed actuator specification.
+
+    Each detected schema directly maps to a component class with its
+    extracted params. Returns None if not a valid actuator prim.
+    """
     if prim.GetTypeName() != "Actuator":
         return None
 
@@ -141,13 +123,45 @@ def parse_actuator_prim(prim) -> ParsedActuator | None:
     if not target_paths:
         return None
 
-    schemas = infer_schemas_from_prim(prim)
+    schemas = get_schemas_from_prim(prim)
+    controller_class = None
+    controller_kwargs: dict[str, Any] = {}
+    component_specs: list[tuple[type, dict[str, Any]]] = []
 
-    transmission = get_attribute(prim, "newton:actuator:transmission")
+    for schema_name in schemas:
+        entry = SCHEMA_REGISTRY.get(schema_name)
+        if entry is None:
+            continue
+
+        kwargs: dict[str, Any] = {}
+        for usd_name, kwarg_name in entry.param_map.items():
+            value = get_attribute(prim, f"newton:actuator:{usd_name}")
+            if value is not None:
+                kwargs[kwarg_name] = value
+
+        if entry.validate is not None:
+            entry.validate(kwargs)
+
+        if entry.is_controller:
+            if controller_class is not None:
+                raise ValueError(
+                    f"Actuator prim has multiple controllers: "
+                    f"{controller_class.__name__} and {entry.component_class.__name__}"
+                )
+            controller_class = entry.component_class
+            controller_kwargs = kwargs
+        else:
+            component_specs.append((entry.component_class, kwargs))
+
+    if controller_class is None:
+        raise ValueError(
+            f"Actuator prim has no controller schema applied "
+            f"(applied schemas: {prim.GetAppliedSchemas()})"
+        )
 
     return ParsedActuator(
-        actuator_class=determine_actuator_class(schemas),
+        controller_class=controller_class,
+        controller_kwargs=controller_kwargs,
+        component_specs=component_specs,
         target_paths=target_paths,
-        kwargs=extract_kwargs_from_prim(prim, schemas),
-        transmission=list(transmission) if transmission else None,
     )
