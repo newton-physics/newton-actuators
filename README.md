@@ -27,7 +27,7 @@ Actuator
 ├── Delay           (optional: delays control targets by N timesteps)
 └── Clamping[]          (post-controller force bounds)
     ├── ClampingMaxForce       (±max_force box clamp)
-    ├── ClampingVelocityBased   (velocity-dependent saturation)
+    ├── ClampingDCMotor   (velocity-dependent saturation)
     └── ClampingPositionBased  (angle-dependent lookup)
 ```
 
@@ -94,7 +94,7 @@ Passed to `Actuator` via the `delay=` parameter.
 | Clamping | Description | Stateful |
 |---|---|---|
 | `ClampingMaxForce` | Box-clamp raw forces to ±max_force | No |
-| `ClampingVelocityBased` | Velocity-dependent torque–speed saturation | No |
+| `ClampingDCMotor` | Velocity-dependent torque–speed saturation | No |
 | `ClampingPositionBased` | Angle-dependent torque limits via lookup table | No |
 
 Multiple clamping stages can be combined freely; each applies its own limits independently (intersection semantics).
@@ -107,7 +107,7 @@ The `step()` method runs:
 
 1. **Delay** — read delayed targets from buffer (zero force output while buffer is still filling)
 2. **Controller** — compute raw forces
-3. **Clamping** — clamp raw forces (e.g. `ClampingMaxForce`, `ClampingVelocityBased`)
+3. **Clamping** — clamp raw forces (e.g. `ClampingMaxForce`, `ClampingDCMotor`)
 4. **Scatter-add** — accumulate forces into the output array at the specified DOF indices
 5. **State updates** — update delay buffer and controller state
 
@@ -184,14 +184,14 @@ for step in range(num_steps):
 The composer pattern lets you freely combine controllers and clamping:
 
 ```python
-from newton_actuators import Delay, ClampingVelocityBased
+from newton_actuators import Delay, ClampingDCMotor
 
 actuator = Actuator(
     indices=indices,
     controller=ControllerPD(kp=kp, kd=kd),
     delay=Delay(delay=5),
     clamping=[
-        ClampingVelocityBased(
+        ClampingDCMotor(
             saturation_effort=sat_effort,
             velocity_limit=vel_limit,
             max_force=max_force,

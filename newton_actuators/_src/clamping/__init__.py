@@ -4,11 +4,11 @@
 from .base import Clamping
 from .clamping_max_force import ClampingMaxForce
 from .clamping_position_based import ClampingPositionBased
-from .clamping_velocity_based import ClampingVelocityBased
+from .clamping_dc_motor import ClampingDCMotor
 
 __all__ = [
     "Clamping",
     "ClampingMaxForce",
     "ClampingPositionBased",
-    "ClampingVelocityBased",
+    "ClampingDCMotor",
 ]

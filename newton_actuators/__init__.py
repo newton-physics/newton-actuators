@@ -8,7 +8,7 @@ from ._src.clamping import (
     Clamping,
     ClampingMaxForce,
     ClampingPositionBased,
-    ClampingVelocityBased,
+    ClampingDCMotor,
 )
 from ._src.controllers import (
     Controller,
@@ -41,7 +41,7 @@ __all__ = [
     "Clamping",
     "ClampingMaxForce",
     "ClampingPositionBased",
-    "ClampingVelocityBased",
+    "ClampingDCMotor",
     # USD
     "ParsedActuator",
     "parse_actuator_prim",

@@ -12,7 +12,7 @@ from newton_actuators import (
     Actuator,
     ClampingMaxForce,
     ClampingPositionBased,
-    ClampingVelocityBased,
+    ClampingDCMotor,
     ControllerPD,
     ControllerPID,
     Delay,
@@ -298,12 +298,12 @@ class TestPIDWithClampingMaxForce(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# PD Controller + ClampingVelocityBased
+# PD Controller + ClampingDCMotor
 # ---------------------------------------------------------------------------
 
 
 class TestPDWithDCMotor(unittest.TestCase):
-    """Tests for ControllerPD + ClampingVelocityBased (replaces old ActuatorDCMotor)."""
+    """Tests for ControllerPD + ClampingDCMotor (replaces old ActuatorDCMotor)."""
 
     def setUp(self):
         wp.init()
@@ -317,7 +317,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kd=wp.array([10.0, 10.0], dtype=wp.float32),
             ),
             clamping=[
-                ClampingVelocityBased(
+                ClampingDCMotor(
                     saturation_effort=wp.array([80.0, 80.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0, 10.0], dtype=wp.float32),
                     max_force=wp.array([50.0, 50.0], dtype=wp.float32),
@@ -331,10 +331,10 @@ class TestPDWithDCMotor(unittest.TestCase):
 
     def test_requires_velocity_limit(self):
         with self.assertRaises(ValueError):
-            ClampingVelocityBased.resolve_arguments({"kp": 50.0})
+            ClampingDCMotor.resolve_arguments({"kp": 50.0})
 
     def test_resolve_arguments(self):
-        resolved = ClampingVelocityBased.resolve_arguments({"kp": 50.0, "velocity_limit": 10.0})
+        resolved = ClampingDCMotor.resolve_arguments({"kp": 50.0, "velocity_limit": 10.0})
         self.assertEqual(resolved["velocity_limit"], 10.0)
 
     def test_zero_velocity_full_torque(self):
@@ -346,7 +346,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                ClampingVelocityBased(
+                ClampingDCMotor(
                     saturation_effort=wp.array([150.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -377,7 +377,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                ClampingVelocityBased(
+                ClampingDCMotor(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -408,7 +408,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                ClampingVelocityBased(
+                ClampingDCMotor(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -439,7 +439,7 @@ class TestPDWithDCMotor(unittest.TestCase):
                 kd=wp.array([0.0], dtype=wp.float32),
             ),
             clamping=[
-                ClampingVelocityBased(
+                ClampingDCMotor(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -635,7 +635,7 @@ class TestComposition(unittest.TestCase):
         wp.init()
 
     def test_pd_with_delay_and_dc_motor(self):
-        """PD + Delay + ClampingVelocityBased — a combination not possible before."""
+        """PD + Delay + ClampingDCMotor — a combination not possible before."""
         indices = wp.array([0], dtype=wp.uint32)
         actuator = Actuator(
             indices=indices,
@@ -645,7 +645,7 @@ class TestComposition(unittest.TestCase):
             ),
             delay=Delay(delay=2),
             clamping=[
-                ClampingVelocityBased(
+                ClampingDCMotor(
                     saturation_effort=wp.array([100.0], dtype=wp.float32),
                     velocity_limit=wp.array([10.0], dtype=wp.float32),
                     max_force=wp.array([200.0], dtype=wp.float32),
@@ -944,7 +944,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["ControllerPDAPI", "ClampingVelocityBasedAPI"],
+            schemas=["ControllerPDAPI", "ClampingDCMotorAPI"],
         )
 
         result = parse_actuator_prim(prim)
@@ -967,7 +967,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["ControllerPDAPI", "ClampingVelocityBasedAPI"],
+            schemas=["ControllerPDAPI", "ClampingDCMotorAPI"],
         )
 
         with self.assertRaises(ValueError):
@@ -986,7 +986,7 @@ class TestActuatorParser(unittest.TestCase):
             relationships={
                 "newton:actuator:target": MockRelationship(["/World/Robot/Joint1"]),
             },
-            schemas=["ControllerPDAPI", "ClampingVelocityBasedAPI"],
+            schemas=["ControllerPDAPI", "ClampingDCMotorAPI"],
         )
 
         with self.assertRaises(ValueError):

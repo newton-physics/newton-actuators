@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .clamping import ClampingMaxForce, ClampingVelocityBased
+from .clamping import ClampingMaxForce, ClampingDCMotor
 from .controllers import ControllerNetLSTM, ControllerNetMLP, ControllerPD, ControllerPID
 from .delay import Delay
 
@@ -25,7 +25,7 @@ def _validate_clamp_velocity_based(kwargs: dict[str, Any]) -> None:
     vel_lim = kwargs.get("velocity_limit")
     if vel_lim is not None and vel_lim <= 0.0:
         raise ValueError(
-            f"ClampingVelocityBasedAPI requires velocity_limit > 0 (division by velocity_limit "
+            f"ClampingDCMotorAPI requires velocity_limit > 0 (division by velocity_limit "
             f"in torque-speed computation); got {vel_lim}"
         )
 
@@ -50,8 +50,8 @@ SCHEMA_REGISTRY: dict[str, SchemaEntry] = {
         component_class=Delay,
         param_map={"delay": "delay"},
     ),
-    "ClampingVelocityBasedAPI": SchemaEntry(
-        component_class=ClampingVelocityBased,
+    "ClampingDCMotorAPI": SchemaEntry(
+        component_class=ClampingDCMotor,
         param_map={"saturationEffort": "saturation_effort", "velocityLimit": "velocity_limit", "maxForce": "max_force"},
         validate=_validate_clamp_velocity_based,
     ),
