@@ -1,7 +1,10 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/newton-physics/newton-actuators/main)
 
-**This project is in active beta development.** This means the API is unstable, features may be added or removed, and breaking changes are likely to occur frequently and without notice as the design is refined.
+> **⚠️ Deprecation Notice:** Starting with [Newton](https://github.com/newton-physics/newton) 1.3, actuators are created in and used exclusively from Newton's built-in `newton.actuators` module. This standalone `newton-actuators` package will no longer be maintained. Please migrate:
+>
+> - Concepts guide: https://newton-physics.github.io/newton/latest/concepts/actuators.html
+> - API reference: https://newton-physics.github.io/newton/latest/api/newton_actuators.html
 
 # Newton Actuators
 
