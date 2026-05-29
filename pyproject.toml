@@ -9,17 +9,23 @@ license = "Apache-2.0"
 license-files = ["LICENSE.md"]
 authors = [{ name = "Newton Developers", email = "warp-python@nvidia.com" }]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 7 - Inactive",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Environment :: GPU :: NVIDIA CUDA",
 ]
-description = "Actuator-based control library for GPU-accelerated physics simulations"
+description = "DEPRECATED: actuators are now part of the 'newton' package as 'newton.actuators'. This standalone package is no longer maintained."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["warp-lang>=1.11.0.dev20251205"]
+
+[project.urls]
+Homepage = "https://github.com/newton-physics/newton"
+Documentation = "https://newton-physics.github.io/newton/latest/api/newton_actuators.html"
+Repository = "https://github.com/newton-physics/newton-actuators"
+"Migration Guide" = "https://newton-physics.github.io/newton/latest/concepts/actuators.html"
 
 [project.optional-dependencies]
 torch-cu12 = ["torch>=2.7.0"]

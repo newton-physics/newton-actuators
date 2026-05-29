@@ -1,5 +1,14 @@
 # Overview
 
+> **⚠️ This repository is deprecated and no longer accepts contributions.**
+>
+> Starting with [Newton](https://github.com/newton-physics/newton) 1.3, actuators
+> live exclusively in the main `newton` repository as the `newton.actuators` module. Please
+> open issues and pull requests there instead:
+>
+> - Repository: https://github.com/newton-physics/newton
+> - Contributing guide: https://github.com/newton-physics/newton/blob/main/CONTRIBUTING.md
+
 Newton Actuators is a project of the Linux Foundation and aims to be governed in a transparent, accessible way for the benefit of the community. All participation in this project is open and not bound to corporate affiliation. Participants are all bound to the Linux Foundation [Code of Conduct](https://lfprojects.org/policies/code-of-conduct/).
 
 # General Guidelines and Legal
